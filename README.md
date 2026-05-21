@@ -1,4 +1,4 @@
-# LLM Markdown
+# LLM Markdown WordPress Plugin
 
 A WordPress plugin that serves markdown versions of your site content at `.md` URLs, making your site readable by AI language models. Also generates an `llms.txt` site index following the emerging standard for LLM-friendly content discovery.
 
