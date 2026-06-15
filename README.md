@@ -1,6 +1,6 @@
-# LLM Markdown WordPress Plugin
+# Make My Site Agent-Ready — WordPress Plugin
 
-A WordPress plugin that serves markdown versions of your site content at `.md` URLs, making your site readable by AI language models. Also generates an `llms.txt` site index following the emerging standard for LLM-friendly content discovery.
+A WordPress plugin that makes your site ready for AI agents and language models. Serves clean markdown at `.md` URLs, generates `/llms.txt` and `/llms-full.txt` site indexes, serves `/.well-known/security.txt`, adds AI crawler rules to `robots.txt`, and exposes WordPress Abilities API endpoints for AI agent management.
 
 ## Why
 
@@ -15,6 +15,9 @@ Eight existing plugins were analyzed before building this one. Most were overeng
 - **YAML frontmatter** — title, date, author, URL, excerpt, categories, and tags
 - **Pre-generated on save** — markdown is stored in post meta, so `.md` requests serve instantly with zero processing
 - **`/llms.txt` site index** — lists all available markdown URLs organized by category, cached with 24-hour transient
+- **`/llms-full.txt`** — full site content concatenated as markdown in a single file, for LLMs that want everything at once
+- **`/.well-known/security.txt`** — serves a security.txt file (RFC 9116) with configurable content via Settings
+- **AI crawler rules in `robots.txt`** — explicit `Allow: /` entries for GPTBot, ClaudeBot, Anthropic-AI, GoogleOther, PerplexityBot, and FacebookBot; adds `Sitemap:` directive if not already present
 - **`<link rel="alternate">`** — HTML pages include a link tag pointing to their markdown version
 - **Post type selector** — choose which content types get markdown versions
 - **CSS root selector** — configure which part of the page HTML to convert (useful for sites with complex layouts)
@@ -25,19 +28,20 @@ Eight existing plugins were analyzed before building this one. Most were overeng
 
 ## How it works
 
-1. When you save a post, the plugin converts its rendered HTML to markdown using [league/html-to-markdown](https://github.com/thephpleague/html-to-markdown) and stores it in post meta (`_llmmd_content`)
+1. When you save a post, the plugin converts its rendered HTML to markdown using [league/html-to-markdown](https://github.com/thephpleague/html-to-markdown) and stores it in post meta
 2. A single rewrite rule (`^(.+)\.md/?$`) catches all `.md` requests
 3. The plugin resolves the request to a post, reads the pre-generated markdown from meta, and serves it with proper headers
 4. The `/llms.txt` endpoint builds a categorized index of all available markdown URLs
+5. The `/llms-full.txt` endpoint concatenates the full content of all posts and pages into a single file
 
 Since markdown is generated at save time, serving `.md` requests is essentially a single meta query — no HTML parsing, no API calls, no processing overhead.
 
 ## Installation
 
 1. Download or clone this repository
-2. Upload the entire plugin folder to `wp-content/plugins/`
+2. Upload the `make-my-site-agent-ready` folder to `wp-content/plugins/`
 3. Activate the plugin in WordPress
-4. Go to **Settings > LLM Markdown** to configure post types and options
+4. Go to **Settings > Agent-Ready** to configure post types, options, and security.txt content
 5. Visit **Settings > Permalinks** and click Save (to flush rewrite rules)
 
 The plugin includes its only dependency (`league/html-to-markdown`) in the `vendor/` folder — no Composer install needed.
@@ -63,6 +67,8 @@ Welcome to WordPress. This is your first post. Edit or delete it, then start wri
 
 **`your-site.com/llms.txt`** returns a site index with all available markdown URLs grouped by category.
 
+**`your-site.com/llms-full.txt`** returns the full content of every published post and page as concatenated markdown.
+
 ## Requirements
 
 - WordPress 6.0+
@@ -85,9 +91,5 @@ This plugin exposes abilities for the [WordPress Abilities API](https://develope
 
 | Ability | Access | Description |
 |---|---|---|
-| `llm-markdown/get-settings` | Always on | Returns the enabled post types and content root CSS selector |
-| `llm-markdown/regenerate-files` | Write (opt-in) | Regenerates cached markdown for all published content across all enabled post types and clears the llms.txt cache |
-
-### Enabling write abilities
-
-Write abilities are disabled by default. To enable them, go to **Settings > LLM Markdown** and check **Enable write abilities**.
+| `make-my-site-agent-ready/get-settings` | Always on | Returns the enabled post types and content root CSS selector |
+| `make-my-site-agent-ready/regenerate-files` | Always on (destructive) | Regenerates cached markdown for all published content and clears the llms.txt and llms-full.txt caches. AI tools will ask for confirmation before running. |
