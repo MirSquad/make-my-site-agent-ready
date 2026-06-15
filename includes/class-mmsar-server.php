@@ -3,7 +3,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class LLMMD_Server {
+class MMSAR_Server {
 
 	public static function init() {
 		add_action( 'init', [ __CLASS__, 'add_rewrite_rules' ] );
@@ -42,7 +42,7 @@ class LLMMD_Server {
 		if ( ! $post_id ) {
 			status_header( 404 );
 			echo '# 404 Not Found' . "\n\n";
-			echo esc_html__( 'The requested content was not found.', 'llm-markdown' ) . "\n";
+			echo esc_html__( 'The requested content was not found.', 'make-my-site-agent-ready' ) . "\n";
 			exit;
 		}
 
@@ -51,21 +51,21 @@ class LLMMD_Server {
 		if ( ! empty( $post->post_password ) ) {
 			status_header( 403 );
 			echo '# 403 Forbidden' . "\n\n";
-			echo esc_html__( 'This content is password protected.', 'llm-markdown' ) . "\n";
+			echo esc_html__( 'This content is password protected.', 'make-my-site-agent-ready' ) . "\n";
 			exit;
 		}
 
-		if ( ! in_array( $post->post_type, llmmd_get_enabled_post_types(), true ) ) {
+		if ( ! in_array( $post->post_type, mmsar_get_enabled_post_types(), true ) ) {
 			status_header( 404 );
 			echo '# 404 Not Found' . "\n\n";
-			echo esc_html__( 'Markdown is not available for this content type.', 'llm-markdown' ) . "\n";
+			echo esc_html__( 'Markdown is not available for this content type.', 'make-my-site-agent-ready' ) . "\n";
 			exit;
 		}
 
 		$markdown = get_post_meta( $post_id, '_llmmd_content', true );
 
 		if ( empty( $markdown ) ) {
-			$markdown = LLMMD_Converter::convert_post( $post_id );
+			$markdown = MMSAR_Converter::convert_post( $post_id );
 			if ( ! empty( $markdown ) ) {
 				update_post_meta( $post_id, '_llmmd_content', $markdown );
 			}
@@ -74,7 +74,7 @@ class LLMMD_Server {
 		if ( empty( $markdown ) ) {
 			status_header( 404 );
 			echo '# 404 Not Found' . "\n\n";
-			echo esc_html__( 'No content available.', 'llm-markdown' ) . "\n";
+			echo esc_html__( 'No content available.', 'make-my-site-agent-ready' ) . "\n";
 			exit;
 		}
 
@@ -110,7 +110,7 @@ class LLMMD_Server {
 			return $post_id;
 		}
 
-		$post = get_page_by_path( $path, OBJECT, llmmd_get_enabled_post_types() );
+		$post = get_page_by_path( $path, OBJECT, mmsar_get_enabled_post_types() );
 		if ( $post ) {
 			return $post->ID;
 		}

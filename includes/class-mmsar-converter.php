@@ -5,7 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 use League\HTMLToMarkdown\HtmlConverter;
 
-class LLMMD_Converter {
+class MMSAR_Converter {
 
 	public static function convert_post( $post_id ) {
 		$post = get_post( $post_id );
@@ -85,12 +85,12 @@ class LLMMD_Converter {
 		$content = wpautop( $content );
 		$content = wptexturize( $content );
 
-		$root_selector = llmmd_get_root_selector();
+		$root_selector = mmsar_get_root_selector();
 		if ( ! empty( $root_selector ) ) {
 			$content = self::extract_root( $content, $root_selector );
 		}
 
-		$content = apply_filters( 'llmmd_rendered_content', $content, $post );
+		$content = apply_filters( 'mmsar_rendered_content', $content, $post );
 
 		return $content;
 	}
@@ -149,11 +149,11 @@ class LLMMD_Converter {
 
 		try {
 			$converter = new HtmlConverter( [
-				'strip_tags'                => true,
-				'remove_nodes'              => 'script style iframe',
-				'hard_break'                => false,
-				'header_style'              => 'atx',
-				'strip_placeholder_links'   => true,
+				'strip_tags'              => true,
+				'remove_nodes'            => 'script style iframe',
+				'hard_break'              => false,
+				'header_style'            => 'atx',
+				'strip_placeholder_links' => true,
 			] );
 
 			$markdown = $converter->convert( $html );

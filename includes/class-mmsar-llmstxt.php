@@ -3,7 +3,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class LLMMD_LLMs_Txt {
+class MMSAR_LLMs_Txt {
 
 	public static function init() {
 		add_action( 'init', [ __CLASS__, 'add_rewrite_rules' ] );
@@ -64,10 +64,10 @@ class LLMMD_LLMs_Txt {
 			$lines[] = '- [Home (Markdown)](' . rtrim( $home_url, '/' ) . '/index.md)';
 		}
 
-		$post_types    = llmmd_get_enabled_post_types();
-		$pages         = self::get_posts_by_type( 'page', $post_types );
-		$posts         = self::get_posts_by_type( 'post', $post_types );
-		$custom_posts  = self::get_custom_type_posts( $post_types );
+		$post_types   = mmsar_get_enabled_post_types();
+		$pages        = self::get_posts_by_type( 'page', $post_types );
+		$posts        = self::get_posts_by_type( 'post', $post_types );
+		$custom_posts = self::get_custom_type_posts( $post_types );
 
 		if ( ! empty( $pages ) ) {
 			$lines[] = '';
