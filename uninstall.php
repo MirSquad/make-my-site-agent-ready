@@ -7,6 +7,7 @@ delete_option( 'llmmd_settings' );
 delete_option( 'llmmd_write_abilities' );
 delete_option( 'llmmd_version' );
 delete_option( 'mmsar_security_txt' );
+delete_option( 'mmsar_robots_txt_extra' );
 delete_transient( 'llmmd_llms_txt' );
 delete_transient( 'mmsar_llms_full_txt' );
 

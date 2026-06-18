@@ -25,6 +25,13 @@ class MMSAR_Endpoints {
 			'index.php?mmsar_security_txt=1',
 			'top'
 		);
+		// Route robots.txt through WordPress so the robots_txt filter (and our AI rules) always fire,
+		// even if a physical robots.txt file exists in the webroot.
+		add_rewrite_rule(
+			'^robots\.txt$',
+			'index.php?robots=1',
+			'top'
+		);
 	}
 
 	public static function add_query_vars( $vars ) {
@@ -54,7 +61,6 @@ class MMSAR_Endpoints {
 		}
 
 		header( 'Content-Type: text/plain; charset=UTF-8' );
-		header( 'X-Robots-Tag: noindex' );
 		status_header( 200 );
 
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw text/plain, not HTML.

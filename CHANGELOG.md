@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.3.3 — 2026-06-18
+
+### Improvement
+
+- Add: robots.txt "Current Content" read-only preview in the settings page, showing exactly what gets served — so users can verify the AI crawler rules are present without leaving the admin.
+
+## 1.3.2 — 2026-06-18
+
+### New features
+
+- Add: robots.txt settings section in Settings > Agent-Ready — shows a link to the live file and an "Additional Rules" textarea for custom directives appended after the AI crawler rules.
+- Add: robots.txt Quick Link in the settings page footer alongside llms.txt, llms-full.txt, and security.txt.
+
+## 1.3.1 — 2026-06-15
+
+### Bug fixes
+
+- Fix: Remove `X-Robots-Tag: noindex` header from `/llms.txt` and `/llms-full.txt` — these files are meant to be discovered by AI agents, not hidden from crawlers.
+- Fix: Add rewrite rule routing `robots.txt` through WordPress (`index.php?robots=1`) so the `robots_txt` filter (and AI crawler rules) fires even when a physical `robots.txt` file exists on disk.
+- Add: Admin notice when a static `robots.txt` file is detected in the webroot, warning that CDNs (e.g. Cloudflare) may serve it directly, bypassing the plugin's AI crawler rules.
+
 ## 1.3.0 — 2026-06-15
 
 ### Plugin renamed: LLM Markdown → Make My Site Agent-Ready

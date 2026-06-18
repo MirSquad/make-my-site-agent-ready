@@ -36,7 +36,6 @@ class MMSAR_LLMs_Txt {
 		}
 
 		header( 'Content-Type: text/plain; charset=UTF-8' );
-		header( 'X-Robots-Tag: noindex' );
 		status_header( 200 );
 
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw text/plain llms.txt, not HTML.

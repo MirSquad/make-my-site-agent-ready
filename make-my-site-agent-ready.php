@@ -3,7 +3,7 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, and AI crawler rules in robots.txt.
- * Version:           1.3.0
+ * Version:           1.3.3
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.3.0' );
+define( 'MMSAR_VERSION', '1.3.3' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -144,6 +144,11 @@ function mmsar_robots_txt( $output, $public ) {
 
 	if ( strpos( $output, 'Sitemap:' ) === false ) {
 		$rules .= 'Sitemap: ' . home_url( '/sitemap_index.xml' ) . "\n";
+	}
+
+	$extra = trim( get_option( 'mmsar_robots_txt_extra', '' ) );
+	if ( ! empty( $extra ) ) {
+		$rules .= "\n" . $extra . "\n";
 	}
 
 	return $output . $rules;

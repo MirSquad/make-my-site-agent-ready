@@ -8,6 +8,24 @@ class MMSAR_Admin {
 	public static function init() {
 		add_action( 'admin_menu', [ __CLASS__, 'add_menu' ] );
 		add_action( 'admin_init', [ __CLASS__, 'register_settings' ] );
+		add_action( 'admin_notices', [ __CLASS__, 'static_robots_notice' ] );
+	}
+
+	public static function static_robots_notice() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		$robots_file = ABSPATH . 'robots.txt';
+		if ( ! file_exists( $robots_file ) ) {
+			return;
+		}
+		echo '<div class="notice notice-warning"><p>';
+		printf(
+			/* translators: %s: path to robots.txt file */
+			esc_html__( 'Make My Site Agent-Ready: A physical robots.txt file was found at %s. WordPress rewrite rules override it on Apache, but some hosts or CDNs (e.g. Cloudflare) may serve the static file directly, bypassing the AI crawler rules added by this plugin. Consider deleting the static file so WordPress generates robots.txt dynamically.', 'make-my-site-agent-ready' ),
+			'<code>' . esc_html( $robots_file ) . '</code>'
+		);
+		echo '</p></div>';
 	}
 
 	public static function add_menu() {
@@ -47,6 +65,34 @@ class MMSAR_Admin {
 			[ __CLASS__, 'render_root_selector_field' ],
 			'make-my-site-agent-ready',
 			'mmsar_main'
+		);
+
+		// robots.txt settings.
+		register_setting( 'mmsar_settings_group', 'mmsar_robots_txt_extra', [
+			'sanitize_callback' => 'sanitize_textarea_field',
+		] );
+
+		add_settings_section(
+			'mmsar_robots_txt',
+			__( 'robots.txt', 'make-my-site-agent-ready' ),
+			[ __CLASS__, 'render_robots_txt_section' ],
+			'make-my-site-agent-ready'
+		);
+
+		add_settings_field(
+			'mmsar_robots_txt_preview',
+			__( 'Current Content', 'make-my-site-agent-ready' ),
+			[ __CLASS__, 'render_robots_txt_preview_field' ],
+			'make-my-site-agent-ready',
+			'mmsar_robots_txt'
+		);
+
+		add_settings_field(
+			'mmsar_robots_txt_extra',
+			__( 'Additional Rules', 'make-my-site-agent-ready' ),
+			[ __CLASS__, 'render_robots_txt_field' ],
+			'make-my-site-agent-ready',
+			'mmsar_robots_txt'
 		);
 
 		// security.txt settings.
@@ -115,6 +161,36 @@ class MMSAR_Admin {
 		echo '<p class="description">' . esc_html__( 'CSS selector(s) to extract content from. Leave empty to use the full post content. Comma-separated for multiple selectors.', 'make-my-site-agent-ready' ) . '</p>';
 	}
 
+	public static function render_robots_txt_section() {
+		$url = home_url( '/robots.txt' );
+		echo '<p>';
+		printf(
+			/* translators: %s: robots.txt URL */
+			esc_html__( 'WordPress generates %s dynamically. This plugin appends explicit Allow rules for AI crawlers (GPTBot, ClaudeBot, etc.) and a Sitemap directive. Add any extra rules below — they will be appended after the AI crawler rules.', 'make-my-site-agent-ready' ),
+			'<a href="' . esc_url( $url ) . '" target="_blank"><code>robots.txt</code></a>'
+		);
+		echo '</p>';
+	}
+
+	public static function render_robots_txt_preview_field() {
+		$public  = (int) get_option( 'blog_public' );
+		$content = "User-agent: *\n";
+		if ( ! $public ) {
+			$content .= "Disallow: /\n";
+		} else {
+			$content .= "Disallow: /wp-admin/\nAllow: /wp-admin/admin-ajax.php\n";
+		}
+		$content = apply_filters( 'robots_txt', $content, $public );
+		echo '<textarea readonly rows="18" class="large-text code" style="background:#f6f7f7;color:#3c434a;">' . esc_textarea( $content ) . '</textarea>';
+		echo '<p class="description">' . esc_html__( 'Read-only preview of the current robots.txt output. This is exactly what gets served at /robots.txt.', 'make-my-site-agent-ready' ) . '</p>';
+	}
+
+	public static function render_robots_txt_field() {
+		$value = get_option( 'mmsar_robots_txt_extra', '' );
+		echo '<textarea name="mmsar_robots_txt_extra" rows="5" class="large-text code" placeholder="# e.g. User-agent: Bingbot&#10;# Allow: /">' . esc_textarea( $value ) . '</textarea>';
+		echo '<p class="description">' . esc_html__( 'Optional extra directives appended to robots.txt. Leave empty if you only need the default AI crawler rules.', 'make-my-site-agent-ready' ) . '</p>';
+	}
+
 	public static function render_security_txt_section() {
 		$url = home_url( '/.well-known/security.txt' );
 		echo '<p>';
@@ -139,6 +215,7 @@ class MMSAR_Admin {
 		$llms_txt_url      = home_url( '/llms.txt' );
 		$llms_full_txt_url = home_url( '/llms-full.txt' );
 		$security_txt_url  = home_url( '/.well-known/security.txt' );
+		$robots_txt_url    = home_url( '/robots.txt' );
 		?>
 		<div class="wrap">
 			<h1><?php esc_html_e( 'Make My Site Agent-Ready', 'make-my-site-agent-ready' ); ?></h1>
@@ -165,6 +242,10 @@ class MMSAR_Admin {
 			<p>
 				<strong><?php esc_html_e( 'security.txt:', 'make-my-site-agent-ready' ); ?></strong>
 				<a href="<?php echo esc_url( $security_txt_url ); ?>" target="_blank"><?php echo esc_html( $security_txt_url ); ?></a>
+			</p>
+			<p>
+				<strong><?php esc_html_e( 'robots.txt:', 'make-my-site-agent-ready' ); ?></strong>
+				<a href="<?php echo esc_url( $robots_txt_url ); ?>" target="_blank"><?php echo esc_html( $robots_txt_url ); ?></a>
 			</p>
 
 			<hr>
