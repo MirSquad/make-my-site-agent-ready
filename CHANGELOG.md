@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.4.3 — 2026-07-06
+
+### New feature
+
+- Add: Content Signals — a new `mmsar_content_signals` option (three yes/no values: `search`, `ai_input`, `ai_train`) with an admin settings section (Settings > Agent-Ready), and a new `mmsar_content_signal_line()` helper that builds the `Content-Signal: search=..., ai-input=..., ai-train=...` directive (contentsignals.org / IETF AI Preferences draft) from it. Emitted once under each of the plugin's own AI-crawler groups in `robots.txt` (GPTBot, ClaudeBot, Anthropic-AI, GoogleOther, PerplexityBot, FacebookBot) — deliberately not under `User-agent: *`, since that group is Yoast's, not this plugin's. Skips auto-adding if the site owner already has a manual `Content-Signal:` line in the Additional Rules textarea, to avoid emitting a conflicting duplicate.
+- Default values: `search=yes, ai-input=yes, ai-train=no` — allow indexing and live AI retrieval, decline training-corpus use by default.
+- Prompted by isitagentready.com flagging the absence of Content Signals in robots.txt.
+
+## 1.4.2 — 2026-07-06
+
+### New feature
+
+- Add: HTTP `Link` response headers (RFC 8288) on every front-end response — `Link: </.well-known/api-catalog>; rel="api-catalog"` and `Link: </.well-known/agent-skills/index.json>; rel="service-desc"`, plus a third on singular posts/pages mirroring the existing `<link rel="alternate" type="text/markdown">` tag as a real header. Prompted by isitagentready.com flagging the homepage's missing Link headers.
+- Refactored the markdown-URL logic shared by both the `<link>` tag and the new header into one function, `mmsar_get_markdown_url()`, so they can't drift out of sync.
+- Hooked to `template_redirect`, not `send_headers` — `send_headers` fires before `WP_Query` resolves the main query, so `is_front_page()`/`is_singular()` are not yet reliable there. `template_redirect` fires after the query resolves and before any template output.
+
+## 1.4.1 — 2026-07-06
+
+### Bug fix
+
+- Fix: `MMSAR_Server`'s broad `.md` catch-all rewrite rule (`^(.+)\.md/?$`, used for post/page markdown URLs) also matched `/.well-known/agent-skills/fetch-content-as-markdown/SKILL.md`, and won over the more specific Agent Skills rewrite rule regardless of registration order — the Agent Skills file 404'd as a result. Fixed with a negative lookahead (`^(?!\.well-known/)(.+)\.md/?$`) so the catch-all only ever matches actual post/page slugs, never a `/.well-known/` path. Found via live verification immediately after the 1.4.0 install: `api-catalog` and the Agent Skills `index.json` both served correctly, but the `SKILL.md` file itself returned MMSAR_Server's "content not found" 404 — the exact message text made the true cause traceable.
+
+## 1.4.0 — 2026-07-06
+
+### New features
+
+- Add: `/.well-known/api-catalog` (RFC 9727) — a Linkset (RFC 9264) JSON document indexing llms.txt, llms-full.txt, security.txt, the Agent Skills index, sitemap, and feed in one machine-readable file.
+- Add: Agent Skills discovery — `/.well-known/agent-skills/index.json` plus one bundled skill (`fetch-content-as-markdown`) at `/.well-known/agent-skills/fetch-content-as-markdown/SKILL.md`, teaching agents how to use this plugin's `.md`, llms.txt, and llms-full.txt endpoints instead of parsing HTML. New `includes/class-mmsar-agent-skills.php`.
+- Add: Quick Links for both new endpoints in Settings > Agent-Ready.
+
+### Improvement
+
+- Version bumps now trigger an automatic `flush_rewrite_rules()` on the next request, so new rewrite rules (like the two added in this release) take effect without requiring a manual Permalinks resave — updating a plugin's files in place doesn't re-fire the activation hook.
+
 ## 1.3.3 — 2026-06-18
 
 ### Improvement

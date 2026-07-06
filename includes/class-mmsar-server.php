@@ -13,8 +13,11 @@ class MMSAR_Server {
 	}
 
 	public static function add_rewrite_rules() {
+		// Negative lookahead excludes /.well-known/ paths — this broad catch-all is for post/page
+		// .md URLs only, and would otherwise also match (and shadow) well-known endpoints like
+		// /.well-known/agent-skills/*/SKILL.md regardless of which rule was registered more recently.
 		add_rewrite_rule(
-			'^(.+)\.md/?$',
+			'^(?!\.well-known/)(.+)\.md/?$',
 			'index.php?llmmd_path=$matches[1]&llmmd_serve=1',
 			'top'
 		);

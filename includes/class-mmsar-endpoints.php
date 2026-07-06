@@ -25,6 +25,11 @@ class MMSAR_Endpoints {
 			'index.php?mmsar_security_txt=1',
 			'top'
 		);
+		add_rewrite_rule(
+			'^\.well-known/api-catalog$',
+			'index.php?mmsar_api_catalog=1',
+			'top'
+		);
 		// Route robots.txt through WordPress so the robots_txt filter (and our AI rules) always fire,
 		// even if a physical robots.txt file exists in the webroot.
 		add_rewrite_rule(
@@ -37,6 +42,7 @@ class MMSAR_Endpoints {
 	public static function add_query_vars( $vars ) {
 		$vars[] = 'mmsar_llms_full_txt';
 		$vars[] = 'mmsar_security_txt';
+		$vars[] = 'mmsar_api_catalog';
 		return $vars;
 	}
 
@@ -46,6 +52,9 @@ class MMSAR_Endpoints {
 		}
 		if ( get_query_var( 'mmsar_security_txt' ) ) {
 			self::serve_security_txt();
+		}
+		if ( get_query_var( 'mmsar_api_catalog' ) ) {
+			self::serve_api_catalog();
 		}
 	}
 
@@ -138,5 +147,37 @@ class MMSAR_Endpoints {
 		$contact = home_url( '/contact' );
 		$expires = gmdate( 'Y-m-d\T00:00:00.000\Z', strtotime( '+1 year' ) );
 		return "Contact: {$contact}\nExpires: {$expires}\nPreferred-Languages: en\n";
+	}
+
+	// -------------------------------------------------------------------------
+	// /.well-known/api-catalog — RFC 9727, served as a Linkset (RFC 9264)
+	// -------------------------------------------------------------------------
+
+	private static function serve_api_catalog() {
+		$linkset = [
+			'linkset' => [
+				[
+					'anchor'      => home_url( '/' ),
+					'describedby' => [
+						[ 'href' => home_url( '/llms.txt' ), 'type' => 'text/markdown' ],
+						[ 'href' => home_url( '/llms-full.txt' ), 'type' => 'text/markdown' ],
+						[ 'href' => home_url( '/.well-known/security.txt' ), 'type' => 'text/plain' ],
+					],
+					'service-desc' => [
+						[ 'href' => home_url( '/.well-known/agent-skills/index.json' ), 'type' => 'application/json' ],
+					],
+					'item'        => [
+						[ 'href' => home_url( '/sitemap_index.xml' ), 'type' => 'application/xml' ],
+						[ 'href' => home_url( '/feed/' ), 'type' => 'application/rss+xml' ],
+					],
+				],
+			],
+		];
+
+		header( 'Content-Type: application/linkset+json; charset=UTF-8' );
+		header( 'Access-Control-Allow-Origin: *' );
+		status_header( 200 );
+		echo wp_json_encode( $linkset, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+		exit;
 	}
 }

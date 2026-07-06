@@ -95,6 +95,31 @@ class MMSAR_Admin {
 			'mmsar_robots_txt'
 		);
 
+		// Content Signals settings.
+		register_setting( 'mmsar_settings_group', 'mmsar_content_signals', [
+			'sanitize_callback' => [ __CLASS__, 'sanitize_content_signals' ],
+			'default'           => [
+				'search'   => 'yes',
+				'ai_input' => 'yes',
+				'ai_train' => 'no',
+			],
+		] );
+
+		add_settings_section(
+			'mmsar_content_signals',
+			__( 'Content Signals', 'make-my-site-agent-ready' ),
+			[ __CLASS__, 'render_content_signals_section' ],
+			'make-my-site-agent-ready'
+		);
+
+		add_settings_field(
+			'mmsar_content_signals_values',
+			__( 'AI Usage Preferences', 'make-my-site-agent-ready' ),
+			[ __CLASS__, 'render_content_signals_field' ],
+			'make-my-site-agent-ready',
+			'mmsar_content_signals'
+		);
+
 		// security.txt settings.
 		register_setting( 'mmsar_settings_group', 'mmsar_security_txt', [
 			'sanitize_callback' => 'sanitize_textarea_field',
@@ -161,6 +186,58 @@ class MMSAR_Admin {
 		echo '<p class="description">' . esc_html__( 'CSS selector(s) to extract content from. Leave empty to use the full post content. Comma-separated for multiple selectors.', 'make-my-site-agent-ready' ) . '</p>';
 	}
 
+	public static function sanitize_content_signals( $input ) {
+		$valid = [ 'yes', 'no' ];
+		$out   = [];
+		foreach ( [ 'search', 'ai_input', 'ai_train' ] as $key ) {
+			$val         = isset( $input[ $key ] ) ? sanitize_key( $input[ $key ] ) : 'yes';
+			$out[ $key ] = in_array( $val, $valid, true ) ? $val : 'yes';
+		}
+		return $out;
+	}
+
+	public static function render_content_signals_section() {
+		echo '<p>';
+		esc_html_e( 'Content Signals (Content-Signal directives in robots.txt) declare how AI crawlers may use this content: for search indexing, for live retrieval when answering a query, and/or for training a model. This is an emerging, not-yet-ratified proposal — most crawlers do not honor it yet, but validators like isitagentready.com already check for it.', 'make-my-site-agent-ready' );
+		echo '</p>';
+	}
+
+	public static function render_content_signals_field() {
+		$settings = get_option( 'mmsar_content_signals', [
+			'search'   => 'yes',
+			'ai_input' => 'yes',
+			'ai_train' => 'no',
+		] );
+
+		$fields = [
+			'search'   => [
+				__( 'Search', 'make-my-site-agent-ready' ),
+				__( 'Allow this content to be indexed by search engines.', 'make-my-site-agent-ready' ),
+			],
+			'ai_input' => [
+				__( 'AI Input', 'make-my-site-agent-ready' ),
+				__( 'Allow this content to be fetched as live input to an AI system (e.g. an assistant answering a question by reading this page).', 'make-my-site-agent-ready' ),
+			],
+			'ai_train' => [
+				__( 'AI Train', 'make-my-site-agent-ready' ),
+				__( 'Allow this content to be included in a model training corpus.', 'make-my-site-agent-ready' ),
+			],
+		];
+
+		foreach ( $fields as $key => $labels ) {
+			list( $label, $description ) = $labels;
+			$value                       = isset( $settings[ $key ] ) ? $settings[ $key ] : 'yes';
+			echo '<p style="margin-bottom:14px;">';
+			echo '<label style="display:block;font-weight:600;margin-bottom:4px;">' . esc_html( $label ) . '</label>';
+			echo '<select name="mmsar_content_signals[' . esc_attr( $key ) . ']">';
+			echo '<option value="yes"' . selected( $value, 'yes', false ) . '>' . esc_html__( 'Yes', 'make-my-site-agent-ready' ) . '</option>';
+			echo '<option value="no"' . selected( $value, 'no', false ) . '>' . esc_html__( 'No', 'make-my-site-agent-ready' ) . '</option>';
+			echo '</select>';
+			echo '<p class="description">' . esc_html( $description ) . '</p>';
+			echo '</p>';
+		}
+	}
+
 	public static function render_robots_txt_section() {
 		$url = home_url( '/robots.txt' );
 		echo '<p>';
@@ -212,10 +289,12 @@ class MMSAR_Admin {
 			return;
 		}
 
-		$llms_txt_url      = home_url( '/llms.txt' );
-		$llms_full_txt_url = home_url( '/llms-full.txt' );
-		$security_txt_url  = home_url( '/.well-known/security.txt' );
-		$robots_txt_url    = home_url( '/robots.txt' );
+		$llms_txt_url        = home_url( '/llms.txt' );
+		$llms_full_txt_url   = home_url( '/llms-full.txt' );
+		$security_txt_url    = home_url( '/.well-known/security.txt' );
+		$robots_txt_url      = home_url( '/robots.txt' );
+		$api_catalog_url     = home_url( '/.well-known/api-catalog' );
+		$agent_skills_url    = home_url( '/.well-known/agent-skills/index.json' );
 		?>
 		<div class="wrap">
 			<h1><?php esc_html_e( 'Make My Site Agent-Ready', 'make-my-site-agent-ready' ); ?></h1>
@@ -246,6 +325,14 @@ class MMSAR_Admin {
 			<p>
 				<strong><?php esc_html_e( 'robots.txt:', 'make-my-site-agent-ready' ); ?></strong>
 				<a href="<?php echo esc_url( $robots_txt_url ); ?>" target="_blank"><?php echo esc_html( $robots_txt_url ); ?></a>
+			</p>
+			<p>
+				<strong><?php esc_html_e( 'api-catalog:', 'make-my-site-agent-ready' ); ?></strong>
+				<a href="<?php echo esc_url( $api_catalog_url ); ?>" target="_blank"><?php echo esc_html( $api_catalog_url ); ?></a>
+			</p>
+			<p>
+				<strong><?php esc_html_e( 'Agent Skills index:', 'make-my-site-agent-ready' ); ?></strong>
+				<a href="<?php echo esc_url( $agent_skills_url ); ?>" target="_blank"><?php echo esc_html( $agent_skills_url ); ?></a>
 			</p>
 
 			<hr>

@@ -4,11 +4,11 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.3.3
+Stable tag: 1.4.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, and AI crawler rules.
+Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, and AI crawler rules.
 
 == Description ==
 
@@ -20,6 +20,10 @@ Make My Site Agent-Ready makes your WordPress content accessible to AI language 
 * **llms.txt** — Auto-generated site index at `/llms.txt` listing all available markdown content
 * **llms-full.txt** — Full site content in one file at `/llms-full.txt` for LLMs that want everything
 * **security.txt** — Serves `/.well-known/security.txt` with configurable contact info
+* **api-catalog** — Serves `/.well-known/api-catalog` (RFC 9727), a machine-readable index linking llms.txt, llms-full.txt, security.txt, the Agent Skills index, sitemap, and feed
+* **Agent Skills discovery** — Serves `/.well-known/agent-skills/index.json` plus a bundled skill teaching agents how to use this plugin's markdown endpoints
+* **Link response headers** — Every front-end response carries `Link` headers (RFC 8288) pointing to api-catalog and the Agent Skills index; singular posts/pages add a third pointing to their markdown alternate — so agents that only read headers, not HTML, can still find these resources
+* **Content Signals** — Declares `Content-Signal: search=..., ai-input=..., ai-train=...` (contentsignals.org) under each AI crawler's group in `robots.txt`, configurable in Settings > Agent-Ready. Defaults to allowing search and live AI retrieval, declining AI training use.
 * **AI crawler rules** — Adds explicit `Allow: /` entries for GPTBot, ClaudeBot, and other AI crawlers in `robots.txt`
 * **YAML frontmatter** — Title, date, author, URL, excerpt, categories, and tags
 * **Pre-generated** — Markdown is generated when posts are saved, so `.md` requests are instant
@@ -63,6 +67,22 @@ A companion to `llms.txt` — it concatenates the full markdown content of all p
 Yes. Go to Settings > Agent-Ready and check the post types you want to enable.
 
 == Changelog ==
+
+= 1.4.3 =
+* New: Content Signals — `Content-Signal: search=..., ai-input=..., ai-train=...` (contentsignals.org / IETF AI Preferences draft) added under each AI crawler's group in robots.txt. Configurable in Settings > Agent-Ready (three yes/no toggles); defaults to search=yes, ai-input=yes, ai-train=no.
+* Prompted by isitagentready.com flagging the absence of Content Signals in robots.txt
+
+= 1.4.2 =
+* New: Link response headers (RFC 8288) on every front-end response — points agents to api-catalog and the Agent Skills index; singular posts/pages add a third pointing to their markdown alternate
+* Prompted by isitagentready.com flagging the homepage's missing Link headers
+
+= 1.4.1 =
+* Fix: the broad `.md` catch-all rewrite rule (used for post/page markdown URLs) also matched `/.well-known/agent-skills/*/SKILL.md`, causing the Agent Skills file to 404. The catch-all now excludes `/.well-known/` paths.
+
+= 1.4.0 =
+* New: /.well-known/api-catalog endpoint (RFC 9727) indexing llms.txt, llms-full.txt, security.txt, the Agent Skills index, sitemap, and feed
+* New: Agent Skills discovery — /.well-known/agent-skills/index.json plus a bundled skill teaching agents how to use this plugin's markdown endpoints
+* Improvement: version bumps now auto-flush rewrite rules so new endpoints work without a manual Permalinks resave
 
 = 1.3.0 =
 * Rename: plugin renamed to "Make My Site Agent-Ready" with slug make-my-site-agent-ready

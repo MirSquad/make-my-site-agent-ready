@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
- * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, and AI crawler rules in robots.txt.
- * Version:           1.3.3
+ * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, and AI crawler rules in robots.txt.
+ * Version:           1.4.3
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.3.3' );
+define( 'MMSAR_VERSION', '1.4.3' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -28,6 +28,7 @@ require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-converter.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-server.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-llmstxt.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-endpoints.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-skills.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-admin.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/abilities.php';
 
@@ -57,6 +58,10 @@ function mmsar_check_version() {
 		delete_transient( 'llmmd_llms_txt' );
 		delete_transient( 'mmsar_llms_full_txt' );
 		update_option( 'llmmd_version', MMSAR_VERSION );
+		// Any version bump may have added new rewrite rules (e.g. new /.well-known/ endpoints).
+		// Updating a plugin's files in place does not re-fire register_activation_hook, so this
+		// is the only reliable way new endpoints start working without a manual permalink resave.
+		add_action( 'init', 'flush_rewrite_rules', 20 );
 	}
 }
 
@@ -64,8 +69,15 @@ function mmsar_check_version() {
 add_filter( 'redirect_canonical', 'mmsar_prevent_canonical_redirect' );
 function mmsar_prevent_canonical_redirect( $redirect_url ) {
 	// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Reading path only, not using in queries or output.
-	$path = parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH );
-	$plugin_paths = [ '/llms.txt', '/llms-full.txt', '/.well-known/security.txt' ];
+	$path         = parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH );
+	$plugin_paths = [
+		'/llms.txt',
+		'/llms-full.txt',
+		'/.well-known/security.txt',
+		'/.well-known/api-catalog',
+		'/.well-known/agent-skills/index.json',
+		'/.well-known/agent-skills/' . MMSAR_Agent_Skills::SKILL_NAME . '/SKILL.md',
+	];
 	foreach ( $plugin_paths as $p ) {
 		if ( rtrim( $path, '/' ) === $p ) {
 			return false;
@@ -77,6 +89,7 @@ function mmsar_prevent_canonical_redirect( $redirect_url ) {
 MMSAR_Server::init();
 MMSAR_LLMs_Txt::init();
 MMSAR_Endpoints::init();
+MMSAR_Agent_Skills::init();
 MMSAR_Admin::init();
 
 add_action( 'save_post', 'mmsar_on_save_post', 20, 2 );
@@ -110,19 +123,46 @@ function mmsar_on_status_change( $new_status, $old_status, $post ) {
 	}
 }
 
-add_action( 'wp_head', 'mmsar_alternate_link' );
-function mmsar_alternate_link() {
+/**
+ * The markdown URL for the current request, or null if the current page has none.
+ * Shared by the <link> tag (mmsar_alternate_link) and the Link response header
+ * (mmsar_send_link_headers) so both always agree — one source of truth for the URL logic.
+ */
+function mmsar_get_markdown_url() {
 	if ( is_front_page() && get_option( 'page_on_front' ) ) {
-		$md_url = rtrim( home_url(), '/' ) . '/index.md';
-		echo '<link rel="alternate" type="text/markdown" href="' . esc_url( $md_url ) . '">' . "\n";
-		return;
+		return rtrim( home_url(), '/' ) . '/index.md';
 	}
 	if ( ! is_singular( mmsar_get_enabled_post_types() ) ) {
+		return null;
+	}
+	return rtrim( get_permalink(), '/' ) . '.md';
+}
+
+add_action( 'wp_head', 'mmsar_alternate_link' );
+function mmsar_alternate_link() {
+	$md_url = mmsar_get_markdown_url();
+	if ( ! $md_url ) {
 		return;
 	}
-	$url    = rtrim( get_permalink(), '/' );
-	$md_url = $url . '.md';
 	echo '<link rel="alternate" type="text/markdown" href="' . esc_url( $md_url ) . '">' . "\n";
+}
+
+/**
+ * HTTP Link headers for agent discovery (RFC 8288), so agents that read headers without
+ * parsing the HTML body can still find these resources. Hooked to template_redirect, not
+ * send_headers — send_headers fires before WP_Query resolves the main query, so conditional
+ * tags like is_front_page()/is_singular() are not yet reliable there. template_redirect fires
+ * after the query resolves and before any template output, so headers can still be sent.
+ */
+add_action( 'template_redirect', 'mmsar_send_link_headers' );
+function mmsar_send_link_headers() {
+	header( 'Link: <' . esc_url_raw( home_url( '/.well-known/api-catalog' ) ) . '>; rel="api-catalog"', false );
+	header( 'Link: <' . esc_url_raw( home_url( '/.well-known/agent-skills/index.json' ) ) . '>; rel="service-desc"', false );
+
+	$md_url = mmsar_get_markdown_url();
+	if ( $md_url ) {
+		header( 'Link: <' . esc_url_raw( $md_url ) . '>; rel="alternate"; type="text/markdown"', false );
+	}
 }
 
 add_filter( 'robots_txt', 'mmsar_robots_txt', 10, 2 );
@@ -136,17 +176,26 @@ function mmsar_robots_txt( $output, $public ) {
 		'FacebookBot',
 	];
 
+	$extra = trim( get_option( 'mmsar_robots_txt_extra', '' ) );
+	// Skip auto-adding Content-Signal if the site owner already added one manually in the
+	// extra-rules textarea, so we never emit two conflicting directives.
+	$has_manual_signal  = ( false !== stripos( $extra, 'Content-Signal:' ) );
+	$content_signal_line = $has_manual_signal ? '' : mmsar_content_signal_line();
+
 	$rules = "\n";
 	foreach ( $ai_crawlers as $bot ) {
 		$rules .= "User-agent: {$bot}\n";
-		$rules .= "Allow: /\n\n";
+		$rules .= "Allow: /\n";
+		if ( $content_signal_line ) {
+			$rules .= $content_signal_line . "\n";
+		}
+		$rules .= "\n";
 	}
 
 	if ( strpos( $output, 'Sitemap:' ) === false ) {
 		$rules .= 'Sitemap: ' . home_url( '/sitemap_index.xml' ) . "\n";
 	}
 
-	$extra = trim( get_option( 'mmsar_robots_txt_extra', '' ) );
 	if ( ! empty( $extra ) ) {
 		$rules .= "\n" . $extra . "\n";
 	}
@@ -154,11 +203,29 @@ function mmsar_robots_txt( $output, $public ) {
 	return $output . $rules;
 }
 
+/**
+ * Builds the Content-Signal directive line from the mmsar_content_signals option.
+ * Proposed spec: https://contentsignals.org/ — Content-Signal: search=yes, ai-input=yes, ai-train=no
+ */
+function mmsar_content_signal_line() {
+	$settings = get_option( 'mmsar_content_signals', [
+		'search'   => 'yes',
+		'ai_input' => 'yes',
+		'ai_train' => 'no',
+	] );
+	$search   = ( isset( $settings['search'] ) && 'no' === $settings['search'] ) ? 'no' : 'yes';
+	$ai_input = ( isset( $settings['ai_input'] ) && 'no' === $settings['ai_input'] ) ? 'no' : 'yes';
+	$ai_train = ( isset( $settings['ai_train'] ) && 'yes' === $settings['ai_train'] ) ? 'yes' : 'no';
+
+	return "Content-Signal: search={$search}, ai-input={$ai_input}, ai-train={$ai_train}";
+}
+
 register_activation_hook( __FILE__, 'mmsar_activate' );
 function mmsar_activate() {
 	MMSAR_Server::add_rewrite_rules();
 	MMSAR_LLMs_Txt::add_rewrite_rules();
 	MMSAR_Endpoints::add_rewrite_rules();
+	MMSAR_Agent_Skills::add_rewrite_rules();
 	flush_rewrite_rules();
 	mmsar_bulk_generate();
 }
