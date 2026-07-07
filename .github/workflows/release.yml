@@ -1,0 +1,28 @@
+name: Release plugin zip
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build plugin zip
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          git archive --format=zip --prefix=make-my-site-agent-ready/ HEAD \
+            includes make-my-site-agent-ready.php readme.txt uninstall.php vendor \
+            > "make-my-site-agent-ready-${VERSION}.zip"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: make-my-site-agent-ready-*.zip
+          generate_release_notes: true
