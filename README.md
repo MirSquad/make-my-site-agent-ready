@@ -1,6 +1,6 @@
 # Make My Site Agent-Ready — WordPress Plugin
 
-A WordPress plugin that makes your site ready for AI agents and language models. Serves clean markdown at `.md` URLs, generates `/llms.txt` and `/llms-full.txt` site indexes, serves `/.well-known/security.txt`, publishes a machine-readable `/.well-known/api-catalog`, exposes Agent Skills discovery, sends `Link` response headers advertising all of it, declares AI usage preferences via Content Signals in `robots.txt`, adds AI crawler rules, and exposes WordPress Abilities API endpoints for AI agent management.
+A WordPress plugin that makes your site ready for AI agents and language models. Serves clean markdown at `.md` URLs, generates `/llms.txt` and `/llms-full.txt` site indexes, serves `/.well-known/security.txt`, publishes a machine-readable `/.well-known/api-catalog`, exposes Agent Skills discovery, sends `Link` response headers advertising all of it, declares AI usage preferences via Content Signals in `robots.txt`, adds AI crawler rules, optionally emits minimal JSON-LD structured data pointing at the markdown alternate, and exposes WordPress Abilities API endpoints for AI agent management.
 
 ## Why
 
@@ -23,6 +23,7 @@ Eight existing plugins were analyzed before building the original `.md`/llms.txt
 - **`/.well-known/api-catalog`** (RFC 9727) — a Linkset (RFC 9264) JSON document indexing `llms.txt`, `llms-full.txt`, `security.txt`, the Agent Skills index, the sitemap, and the feed in one machine-readable file
 - **Agent Skills discovery** — `/.well-known/agent-skills/index.json` plus a bundled skill (`fetch-content-as-markdown`) teaching an agent how to use this plugin's markdown endpoints instead of parsing HTML. The served skill file and its index digest are computed from the same source at request time, so they can never drift out of sync.
 - **`Link` response headers** (RFC 8288) — every front-end response carries `Link` headers pointing to the api-catalog and the Agent Skills index; singular posts/pages add a third pointing to their markdown alternate. Lets agents that only read headers, never HTML, still find these resources.
+- **Structured data (JSON-LD)** — opt-in, off by default. Adds a minimal `Article` (posts) or `WebPage` (pages/other types) block to each enabled post/page, with an `encoding`/`MediaObject` field pointing at the same markdown alternate. Deliberately has no `@id`, so it can't collide with or be mistaken for part of an SEO plugin's own structured-data graph (e.g. Yoast, RankMath) — the two coexist as fully independent blocks. Enable in Settings > Agent-Ready.
 
 ### Usage preferences and crawler rules
 - **Content Signals** — `Content-Signal: search=..., ai-input=..., ai-train=...` (per [contentsignals.org](https://contentsignals.org/) / the IETF AI Preferences draft) declared under each AI crawler's group in `robots.txt`. Configurable per-site: allow indexing, allow live AI retrieval, allow/decline model training use, independently.
@@ -30,7 +31,7 @@ Eight existing plugins were analyzed before building the original `.md`/llms.txt
 - **`/.well-known/security.txt`** — serves a security.txt file (RFC 9116) with configurable content via Settings
 
 ### Configuration and operations
-- **Settings page** (Settings > Agent-Ready) — post type selector, CSS root selector, robots.txt preview and extra-rules textarea, security.txt content, Content Signals toggles, and Quick Links to every endpoint the plugin serves
+- **Settings page** (Settings > Agent-Ready) — post type selector, CSS root selector, robots.txt preview and extra-rules textarea, security.txt content, Content Signals toggles, a structured data (JSON-LD) toggle, and Quick Links to every endpoint the plugin serves
 - **Bulk regeneration** — "Regenerate All" button on the settings page
 - **Proper HTTP headers** — `Content-Type: text/markdown`, `X-Robots-Tag: noindex`, `X-Content-Type-Options: nosniff`, canonical link
 - **Password protection** — password-protected posts return 403 on `.md` URLs
@@ -89,6 +90,23 @@ Allow: /
 Content-Signal: search=yes, ai-input=yes, ai-train=no
 ```
 
+**A single post, with structured data enabled**, adds a JSON-LD block like:
+```json
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "url": "https://your-site.com/hello-world/",
+  "headline": "Hello World",
+  "datePublished": "2026-01-15T09:00:00+00:00",
+  "dateModified": "2026-01-15T09:00:00+00:00",
+  "encoding": {
+    "@type": "MediaObject",
+    "contentUrl": "https://your-site.com/hello-world.md",
+    "encodingFormat": "text/markdown"
+  }
+}
+```
+
 ## Architecture notes
 
 **The `.md` catch-all rewrite rule excludes `/.well-known/`.** The broad rule that serves post/page `.md` URLs (`^(.+)\.md/?$`) would otherwise also match paths like `/.well-known/agent-skills/*/SKILL.md`, and — depending on rewrite rule registration order — can shadow more specific rules for those paths. The catch-all is scoped with a negative lookahead (`^(?!\.well-known/)(.+)\.md/?$`) so this can't happen regardless of what else the plugin (or a future version of it) adds under `/.well-known/`.
@@ -96,6 +114,8 @@ Content-Signal: search=yes, ai-input=yes, ai-train=no
 **`Link` headers are sent on `template_redirect`, not `send_headers`.** `send_headers` fires before WordPress resolves the main query, so conditional tags like `is_singular()` aren't reliable yet at that point. `template_redirect` fires after the query resolves and still early enough to set headers.
 
 **Content Signals are emitted per AI-crawler group, never under `User-agent: *`.** That group is typically owned by an SEO plugin (Yoast, by default here) — adding to it risks fighting another plugin's output.
+
+**Structured data has no `@id` by design.** An active SEO plugin (Yoast, RankMath) typically emits its own JSON-LD graph using `@id` fragments to cross-link nodes. This plugin's block is intentionally a separate, standalone statement — not part of that graph — so it never defines an `@id` at all, structurally ruling out any collision rather than relying on a naming convention to avoid one.
 
 ## Requirements
 
