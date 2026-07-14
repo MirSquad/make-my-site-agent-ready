@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
- * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, and AI crawler rules in robots.txt.
- * Version:           1.4.3
+ * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data, and AI crawler rules in robots.txt.
+ * Version:           1.5.0
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.4.3' );
+define( 'MMSAR_VERSION', '1.5.0' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -29,6 +29,7 @@ require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-server.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-llmstxt.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-endpoints.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-skills.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-structured-data.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-admin.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/abilities.php';
 
@@ -90,6 +91,7 @@ MMSAR_Server::init();
 MMSAR_LLMs_Txt::init();
 MMSAR_Endpoints::init();
 MMSAR_Agent_Skills::init();
+MMSAR_Structured_Data::init();
 MMSAR_Admin::init();
 
 add_action( 'save_post', 'mmsar_on_save_post', 20, 2 );

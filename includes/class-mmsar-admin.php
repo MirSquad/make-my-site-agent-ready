@@ -9,6 +9,22 @@ class MMSAR_Admin {
 		add_action( 'admin_menu', [ __CLASS__, 'add_menu' ] );
 		add_action( 'admin_init', [ __CLASS__, 'register_settings' ] );
 		add_action( 'admin_notices', [ __CLASS__, 'static_robots_notice' ] );
+		add_action( 'admin_notices', [ __CLASS__, 'structured_data_conflict_notice' ] );
+	}
+
+	public static function structured_data_conflict_notice() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		if ( '1' !== get_option( 'mmsar_structured_data', '' ) ) {
+			return;
+		}
+		if ( ! defined( 'WPSEO_VERSION' ) && ! defined( 'RANK_MATH_VERSION' ) ) {
+			return;
+		}
+		echo '<div class="notice notice-warning"><p>';
+		esc_html_e( 'Make My Site Agent-Ready: JSON-LD structured data is enabled, and an SEO plugin (Yoast SEO or RankMath) that already emits its own structured data is active. This plugin\'s block is intentionally minimal and separate (no shared @id), but consider whether you need both, or whether your SEO plugin\'s existing output already covers this.', 'make-my-site-agent-ready' );
+		echo '</p></div>';
 	}
 
 	public static function static_robots_notice() {
@@ -118,6 +134,27 @@ class MMSAR_Admin {
 			[ __CLASS__, 'render_content_signals_field' ],
 			'make-my-site-agent-ready',
 			'mmsar_content_signals'
+		);
+
+		// Structured data (JSON-LD) settings.
+		register_setting( 'mmsar_settings_group', 'mmsar_structured_data', [
+			'sanitize_callback' => [ __CLASS__, 'sanitize_checkbox' ],
+			'default'           => '',
+		] );
+
+		add_settings_section(
+			'mmsar_structured_data',
+			__( 'Structured Data', 'make-my-site-agent-ready' ),
+			[ __CLASS__, 'render_structured_data_section' ],
+			'make-my-site-agent-ready'
+		);
+
+		add_settings_field(
+			'mmsar_structured_data_enabled',
+			__( 'JSON-LD', 'make-my-site-agent-ready' ),
+			[ __CLASS__, 'render_structured_data_field' ],
+			'make-my-site-agent-ready',
+			'mmsar_structured_data'
 		);
 
 		// security.txt settings.
@@ -236,6 +273,28 @@ class MMSAR_Admin {
 			echo '<p class="description">' . esc_html( $description ) . '</p>';
 			echo '</p>';
 		}
+	}
+
+	public static function sanitize_checkbox( $input ) {
+		return ( '1' === $input ) ? '1' : '';
+	}
+
+	public static function render_structured_data_section() {
+		echo '<p>';
+		printf(
+			/* translators: %s: link to validator.schema.org */
+			esc_html__( 'Adds a minimal JSON-LD block (Article/WebPage, dates, and a pointer to the .md alternate) to each enabled post/page. Off by default: if an SEO plugin like Yoast or RankMath is active, it likely already emits its own structured data — this block is deliberately separate and does not share an @id with any other graph, but you may not need both. Validate the output at %s before relying on it.', 'make-my-site-agent-ready' ),
+			'<a href="https://validator.schema.org/" target="_blank">validator.schema.org</a>'
+		);
+		echo '</p>';
+	}
+
+	public static function render_structured_data_field() {
+		$checked = ( '1' === get_option( 'mmsar_structured_data', '' ) ) ? 'checked' : '';
+		echo '<label>';
+		echo '<input type="checkbox" name="mmsar_structured_data" value="1" ' . $checked . '> ';
+		esc_html_e( 'Add JSON-LD structured data pointing agents at the markdown alternate.', 'make-my-site-agent-ready' );
+		echo '</label>';
 	}
 
 	public static function render_robots_txt_section() {

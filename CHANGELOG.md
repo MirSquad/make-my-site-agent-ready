@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0 — 2026-07-14
+
+### New feature
+
+- Add: Optional JSON-LD structured data — a new `mmsar_structured_data` checkbox (off by default) in Settings > Agent-Ready adds a minimal `Article` (for posts) or `WebPage` (for pages/other post types) block to each enabled post/page, with an `encoding`/`MediaObject` field pointing at the same `.md` URL used by the existing `<link>` tag and `Link` header. New `includes/class-mmsar-structured-data.php`.
+- Deliberately omits `@id` and stays minimal so it can't collide with or duplicate an active SEO plugin's own JSON-LD graph (e.g. Yoast, RankMath) — a new admin notice warns (without blocking) if the setting is enabled while one of those is active.
+- Prompted by the plugin's own agent-readiness gap tracking flagging "structured data for agents" as the one item from the v1.4.2/1.4.3 batch that hadn't shipped yet.
+
 ## 1.4.3 — 2026-07-06
 
 ### New feature
