@@ -1,6 +1,6 @@
 # Make My Site Agent-Ready — WordPress Plugin
 
-A WordPress plugin that makes your site ready for AI agents and language models. Serves clean markdown at `.md` URLs, generates `/llms.txt` and `/llms-full.txt` site indexes, serves `/.well-known/security.txt`, publishes a machine-readable `/.well-known/api-catalog`, exposes Agent Skills discovery, sends `Link` response headers advertising all of it, declares AI usage preferences via Content Signals in `robots.txt`, adds AI crawler rules, optionally emits minimal JSON-LD structured data pointing at the markdown alternate, and exposes WordPress Abilities API endpoints for AI agent management.
+A WordPress plugin that makes your site ready for AI agents and language models. Serves clean markdown at `.md` URLs, generates `/llms.txt` and `/llms-full.txt` site indexes, serves `/.well-known/security.txt`, publishes a machine-readable `/.well-known/api-catalog`, exposes Agent Skills discovery, sends `Link` response headers advertising all of it, declares AI usage preferences via Content Signals in `robots.txt`, adds AI crawler rules, optionally points agents at the markdown alternate via JSON-LD structured data (merging into Yoast SEO's own schema when active, so nothing is duplicated), and exposes WordPress Abilities API endpoints for AI agent management.
 
 ## Why
 
@@ -23,7 +23,7 @@ Eight existing plugins were analyzed before building the original `.md`/llms.txt
 - **`/.well-known/api-catalog`** (RFC 9727) — a Linkset (RFC 9264) JSON document indexing `llms.txt`, `llms-full.txt`, `security.txt`, the Agent Skills index, the sitemap, and the feed in one machine-readable file
 - **Agent Skills discovery** — `/.well-known/agent-skills/index.json` plus a bundled skill (`fetch-content-as-markdown`) teaching an agent how to use this plugin's markdown endpoints instead of parsing HTML. The served skill file and its index digest are computed from the same source at request time, so they can never drift out of sync.
 - **`Link` response headers** (RFC 8288) — every front-end response carries `Link` headers pointing to the api-catalog and the Agent Skills index; singular posts/pages add a third pointing to their markdown alternate. Lets agents that only read headers, never HTML, still find these resources.
-- **Structured data (JSON-LD)** — opt-in, off by default. Adds a minimal `Article` (posts) or `WebPage` (pages/other types) block to each enabled post/page, with an `encoding`/`MediaObject` field pointing at the same markdown alternate. Deliberately has no `@id`, so it can't collide with or be mistaken for part of an SEO plugin's own structured-data graph (e.g. Yoast, RankMath) — the two coexist as fully independent blocks. Enable in Settings > Agent-Ready.
+- **Structured data (JSON-LD)** — opt-in, off by default. Points agents at the markdown alternate via an `encoding`/`MediaObject` field. When Yoast SEO is active and produces schema for the page, this merges directly into Yoast's own `Article`/`WebPage` piece — no duplicate block, nothing else in Yoast's graph touched. Otherwise (no Yoast, or a page type Yoast doesn't cover), a standalone minimal `Article`/`WebPage` JSON-LD block is added instead. Enable in Settings > Agent-Ready.
 
 ### Usage preferences and crawler rules
 - **Content Signals** — `Content-Signal: search=..., ai-input=..., ai-train=...` (per [contentsignals.org](https://contentsignals.org/) / the IETF AI Preferences draft) declared under each AI crawler's group in `robots.txt`. Configurable per-site: allow indexing, allow live AI retrieval, allow/decline model training use, independently.
@@ -90,7 +90,22 @@ Allow: /
 Content-Signal: search=yes, ai-input=yes, ai-train=no
 ```
 
-**A single post, with structured data enabled**, adds a JSON-LD block like:
+**A single post, with structured data enabled and Yoast SEO active**, gets an `encoding` field merged straight into Yoast's own `Article` piece:
+```json
+{
+  "@type": "Article",
+  "headline": "Hello World",
+  "datePublished": "2026-01-15T09:00:00+00:00",
+  "...": "...Yoast's other Article fields (author, publisher, wordCount, etc.), unchanged...",
+  "encoding": {
+    "@type": "MediaObject",
+    "contentUrl": "https://your-site.com/hello-world.md",
+    "encodingFormat": "text/markdown"
+  }
+}
+```
+
+**Without Yoast active** (or on a page type Yoast doesn't cover), the same information ships as its own standalone block instead:
 ```json
 {
   "@context": "https://schema.org",
@@ -115,7 +130,7 @@ Content-Signal: search=yes, ai-input=yes, ai-train=no
 
 **Content Signals are emitted per AI-crawler group, never under `User-agent: *`.** That group is typically owned by an SEO plugin (Yoast, by default here) — adding to it risks fighting another plugin's output.
 
-**Structured data has no `@id` by design.** An active SEO plugin (Yoast, RankMath) typically emits its own JSON-LD graph using `@id` fragments to cross-link nodes. This plugin's block is intentionally a separate, standalone statement — not part of that graph — so it never defines an `@id` at all, structurally ruling out any collision rather than relying on a naming convention to avoid one.
+**Structured data merges into Yoast's schema instead of duplicating it.** Yoast's Schema Framework already declares type, url, title, and dates on every page — the only new fact this plugin adds is the `encoding`/`MediaObject` pointer to the markdown alternate. When Yoast produces a schema piece for the current page, that one field is injected directly into Yoast's own `Article`/`WebPage` piece via Yoast's documented `wpseo_schema_article`/`wpseo_schema_webpage` filters — registered unconditionally (not gated on detecting Yoast at plugin-load time, since load order across plugins isn't guaranteed; if Yoast isn't active, these filters simply never fire). Falls back to a standalone block, with no `@id`, whenever the injection doesn't apply — no Yoast, Yoast's schema output disabled, or a content type (e.g. a WooCommerce product) Yoast gives its own distinct schema to.
 
 ## Requirements
 

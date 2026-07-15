@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.6.1 — 2026-07-15
+
+### Bug fix
+
+- Fix: 1.6.0's Yoast schema injection never actually fired live — verified on miriamschwab.me immediately after installing, view-source still showed the old standalone duplicate block with no `encoding` field merged into Yoast's graph. Root cause: `MMSAR_Structured_Data::init()` gated registering the `wpseo_schema_article`/`wpseo_schema_webpage` filters behind `defined('WPSEO_VERSION')`, checked at top-level plugin-load time. Plugin load order across a site isn't alphabetical or dependency-aware — if this plugin's file loads before Yoast's, `WPSEO_VERSION` isn't defined yet at the moment of that check, so the filters silently never got registered, and every page fell back to the standalone block regardless of Yoast being active. Fixed by registering both filters unconditionally — if Yoast isn't installed, `wpseo_schema_article`/`wpseo_schema_webpage` simply never fire, so there was no actual need to gate registration on the constant at all.
+
+## 1.6.0 — 2026-07-14
+
+### Change
+
+- Change: JSON-LD structured data now merges into Yoast SEO's own schema instead of always adding a separate block. Live verification on miriamschwab.me showed Yoast's Schema Framework already declares `@type`, `url`, `headline`/`name`, and both dates on every page — the only new fact 1.5.0's block added was the `encoding`/`MediaObject` pointer to the markdown alternate. Now, when Yoast is active and produces a schema piece for the current page, `MMSAR_Structured_Data` injects just that `encoding` field directly into Yoast's own `Article` piece (for the `post` post type) or `WebPage` piece (everything else) via Yoast's documented `wpseo_schema_article`/`wpseo_schema_webpage` filters — no second block, no duplication, no `@id` question to even worry about since nothing new is created.
+- Falls back to the full standalone block from 1.5.0 when Yoast isn't active, when Yoast doesn't produce a piece for this page (e.g. Yoast's schema output disabled via the `wpseo_json_ld_output` filter, or a post type Yoast gives its own distinct schema type to, like WooCommerce products), or with any other SEO plugin (RankMath, etc.).
+- The admin conflict notice (Settings > Agent-Ready) no longer warns about Yoast specifically, since the merge behavior means there's nothing to conflict with — it still warns if RankMath (or another non-Yoast SEO plugin) is active, since those still get the standalone block.
+
 ## 1.5.0 — 2026-07-14
 
 ### New feature

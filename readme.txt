@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.5.0
+Stable tag: 1.6.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -24,7 +24,7 @@ Make My Site Agent-Ready makes your WordPress content accessible to AI language 
 * **Agent Skills discovery** — Serves `/.well-known/agent-skills/index.json` plus a bundled skill teaching agents how to use this plugin's markdown endpoints
 * **Link response headers** — Every front-end response carries `Link` headers (RFC 8288) pointing to api-catalog and the Agent Skills index; singular posts/pages add a third pointing to their markdown alternate — so agents that only read headers, not HTML, can still find these resources
 * **Content Signals** — Declares `Content-Signal: search=..., ai-input=..., ai-train=...` (contentsignals.org) under each AI crawler's group in `robots.txt`, configurable in Settings > Agent-Ready. Defaults to allowing search and live AI retrieval, declining AI training use.
-* **Structured data (JSON-LD)** — Optional (off by default) `Article`/`WebPage` JSON-LD block on each enabled post/page pointing at its markdown alternate. Deliberately minimal and separate from any SEO plugin's own structured data — enable in Settings > Agent-Ready.
+* **Structured data (JSON-LD)** — Optional (off by default) pointer to the markdown alternate on each enabled post/page. When Yoast SEO is active and produces schema for the page, the pointer merges directly into Yoast's own `Article`/`WebPage` piece — no duplicate block. Otherwise, a standalone `Article`/`WebPage` JSON-LD block is added instead. Enable in Settings > Agent-Ready.
 * **AI crawler rules** — Adds explicit `Allow: /` entries for GPTBot, ClaudeBot, and other AI crawlers in `robots.txt`
 * **YAML frontmatter** — Title, date, author, URL, excerpt, categories, and tags
 * **Pre-generated** — Markdown is generated when posts are saved, so `.md` requests are instant
@@ -68,6 +68,13 @@ A companion to `llms.txt` — it concatenates the full markdown content of all p
 Yes. Go to Settings > Agent-Ready and check the post types you want to enable.
 
 == Changelog ==
+
+= 1.6.1 =
+* Fix: the Yoast schema injection added in 1.6.0 never actually registered — it was gated behind `defined('WPSEO_VERSION')` at plugin-load time, but plugin load order isn't guaranteed, so that check could run before Yoast's own file had loaded and defined the constant. The filters are now registered unconditionally; they simply never fire if Yoast isn't active.
+
+= 1.6.0 =
+* Change: JSON-LD structured data now merges into Yoast SEO's own `Article`/`WebPage` schema piece (via Yoast's `wpseo_schema_article`/`wpseo_schema_webpage` filters) when Yoast is active and produces schema for the page, instead of always adding a separate block. Falls back to the standalone block from 1.5.0 when Yoast isn't active or doesn't cover the page.
+* Change: the admin conflict notice and settings description updated to reflect the new Yoast-merge behavior; RankMath (or other non-Yoast SEO plugins) still gets the standalone-block warning.
 
 = 1.5.0 =
 * New: Optional JSON-LD structured data (`Article`/`WebPage`) on enabled posts/pages, pointing at the markdown alternate. Off by default; new admin notice warns if enabled alongside an active SEO plugin (Yoast/RankMath).

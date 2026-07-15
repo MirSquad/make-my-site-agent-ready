@@ -19,11 +19,13 @@ class MMSAR_Admin {
 		if ( '1' !== get_option( 'mmsar_structured_data', '' ) ) {
 			return;
 		}
-		if ( ! defined( 'WPSEO_VERSION' ) && ! defined( 'RANK_MATH_VERSION' ) ) {
+		// Yoast is handled: the markdown pointer merges into Yoast's own schema piece
+		// instead of duplicating it, so no warning needed for Yoast specifically.
+		if ( ! defined( 'RANK_MATH_VERSION' ) ) {
 			return;
 		}
 		echo '<div class="notice notice-warning"><p>';
-		esc_html_e( 'Make My Site Agent-Ready: JSON-LD structured data is enabled, and an SEO plugin (Yoast SEO or RankMath) that already emits its own structured data is active. This plugin\'s block is intentionally minimal and separate (no shared @id), but consider whether you need both, or whether your SEO plugin\'s existing output already covers this.', 'make-my-site-agent-ready' );
+		esc_html_e( 'Make My Site Agent-Ready: JSON-LD structured data is enabled, and an SEO plugin (RankMath) that already emits its own structured data is active. This plugin\'s block is intentionally minimal and separate (no shared @id), but consider whether you need both, or whether your SEO plugin\'s existing output already covers this.', 'make-my-site-agent-ready' );
 		echo '</p></div>';
 	}
 
@@ -283,7 +285,7 @@ class MMSAR_Admin {
 		echo '<p>';
 		printf(
 			/* translators: %s: link to validator.schema.org */
-			esc_html__( 'Adds a minimal JSON-LD block (Article/WebPage, dates, and a pointer to the .md alternate) to each enabled post/page. Off by default: if an SEO plugin like Yoast or RankMath is active, it likely already emits its own structured data — this block is deliberately separate and does not share an @id with any other graph, but you may not need both. Validate the output at %s before relying on it.', 'make-my-site-agent-ready' ),
+			esc_html__( 'Adds a pointer to the .md alternate (Article/WebPage type, dates, and a markdown link) to each enabled post/page. Off by default. If Yoast SEO is active and produces structured data for the page, the pointer merges directly into Yoast\'s own schema — no duplicate block. Otherwise (no Yoast, or Yoast doesn\'t cover this page type), a standalone JSON-LD block is added instead; if a different SEO plugin like RankMath is active, you may not need both. Validate the output at %s before relying on it.', 'make-my-site-agent-ready' ),
 			'<a href="https://validator.schema.org/" target="_blank">validator.schema.org</a>'
 		);
 		echo '</p>';
