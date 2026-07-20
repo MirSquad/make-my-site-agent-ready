@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.7.0 — 2026-07-20
+
+### New feature
+
+- New: Every output the plugin publishes can now be switched off individually under Settings > Agent-Ready — markdown URLs, llms.txt, llms-full.txt, robots.txt rules, security.txt, api-catalog, and Agent Skills discovery. Requested by a user who manages robots.txt and llms.txt elsewhere and had no way to stop the plugin producing them. A disabled feature registers nothing at all — no rewrite rule, no filter, no `Link` header — rather than registering hooks that then return early, so the site behaves exactly as if that part of the plugin did not exist.
+- Stored as a single `mmsar_features` array option. `mmsar_feature_enabled()` treats a *missing* key as the feature's default (on) rather than off, which is what makes the upgrade safe: every install predating 1.7.0 has no `mmsar_features` row at all, and reading that absence as "off" would have silently killed working endpoints on every existing site the moment they updated. Verified on the miriamschwab.me clone — with the option absent, all seven endpoints still return 200.
+- Toggling a feature sets a short-lived `mmsar_flush_needed` transient and flushes rewrite rules on the next request, since rewrite rules are cached in an option and the settings save happens after rules are registered on that request.
+- `Link` headers are now emitted per-feature. Previously all three were sent unconditionally; a header advertising a switched-off endpoint would point an agent at a 404, which is worse than no header.
+- The same rule now applies to `/.well-known/api-catalog`, which listed llms.txt, llms-full.txt, security.txt and the Agent Skills index unconditionally. Caught while verifying the live site after 1.7.0 was installed: the per-feature reasoning had been applied to the `Link` headers but not carried across to the catalog, so switching off llms.txt would still have advertised it. The catalog now lists only enabled endpoints, and omits the `describedby` or `service-desc` key entirely when nothing in it is enabled.
+- The `get-settings` ability now reports the feature states, so an agent can see what the site is actually publishing.
+
+### Change
+
+- Change: Switching off robots.txt handling disables *both* halves of that feature — appending the AI crawler rules via the `robots_txt` filter, and the rewrite rule that routes `/robots.txt` through WordPress. The rewrite rule is the disruptive half: it exists to override a physical `robots.txt` file in the webroot, so leaving it registered while the rules were off would have hijacked a hand-maintained file and then added nothing to it.
+- The settings screen states plainly what is lost when it is off (AI crawler Allow rules, the Content-Signal directive, the Sitemap directive) rather than just hiding the section, and the Content Signals and Structured Data sections now explain when they are inert because the feature they depend on is off.
+- The "physical robots.txt found" admin notice is suppressed once the feature is off — at that point the file is being served as the user intends, so the warning is nagging about a problem they just solved.
+- Admin copy corrected during live testing: the override of a physical `robots.txt` was described as unconditional, but testing on the nginx-based Local clone showed the static file still wins, because nginx serves an existing file without ever consulting WordPress. It works on Apache. The copy now says so instead of promising behaviour that fails on most modern stacks. The read-only robots.txt preview claimed to be "exactly what gets served"; on this site Yoast strips the core block on front-end requests only, so the preview and the served file genuinely differ. Softened accordingly.
+
+- Change: security.txt gains a dedicated Security Contact field. `MMSAR_Endpoints::normalize_contact()` accepts a full URL, a bare path (`/contact` or `contact`), or an email address, and expands each into a valid RFC 9116 Contact URI — a bare path or bare email is not valid on its own, but all three are what people naturally type. The field shows the resolved `Contact:` line beneath it so the result is visible before saving.
+- With no contact configured, the generated file now falls back to the site admin email rather than the previous hardcoded guess of `home_url('/contact')`, which published a broken security contact on every site without a page at that exact path. The free-text textarea remains for sites needing extra fields (Encryption, Policy, Acknowledgments) and still overrides the generated file entirely.
+
+### Bug fix
+
+- Fix: The `Sitemap:` directive in robots.txt **and the sitemap entry in `/.well-known/api-catalog`** both hardcoded `sitemap_index.xml`, which is Yoast's filename. Sites on WordPress core sitemaps (`wp-sitemap.xml`), All in One SEO (`sitemap.xml`), or SEOPress (`sitemaps.xml`) advertised a URL that 404s. `mmsar_get_sitemap_url()` now detects the active sitemap provider, asks core's `WP_Sitemaps::sitemaps_enabled()` rather than assuming, and emits no Sitemap line at all when there is nothing valid to point at.
+- Fix: The "don't add a Sitemap line if one already exists" guard never worked alongside Yoast. It ran at the default filter priority, while Yoast hooks `robots_txt` at priority 99999 — so the check ran first, saw no Sitemap line, added one, and Yoast then appended its own, leaving two directives in the served file. Confirmed live on the clone before the fix. The Sitemap line is now added by a separate filter at `PHP_INT_MAX`, after every other plugin has written its output, so the check is made against what is actually served. Verified: one Sitemap line, Yoast's own, with ours correctly standing down.
+
 ## 1.6.1 — 2026-07-15
 
 ### Bug fix

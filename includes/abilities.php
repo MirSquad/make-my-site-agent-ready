@@ -25,11 +25,16 @@ function mmsar_register_abilities() {
 
 	wp_register_ability( 'make-my-site-agent-ready/get-settings', array(
 		'label'       => __( 'Get Settings', 'make-my-site-agent-ready' ),
-		'description' => __( 'Retrieve plugin settings: enabled post types and content root selector.', 'make-my-site-agent-ready' ),
+		'description' => __( 'Retrieve plugin settings: which features are enabled, enabled post types, and content root selector.', 'make-my-site-agent-ready' ),
 		'category'    => 'make-my-site-agent-ready',
 		'output_schema' => array(
 			'type'       => 'object',
 			'properties' => array(
+				'features' => array(
+					'type'        => 'object',
+					'description' => 'Which outputs this plugin is publishing. A feature set to false is switched off and its endpoint is not served.',
+					'additionalProperties' => array( 'type' => 'boolean' ),
+				),
 				'enabled_post_types' => array(
 					'type'        => 'array',
 					'items'       => array( 'type' => 'string' ),
@@ -43,7 +48,12 @@ function mmsar_register_abilities() {
 		),
 		'permission_callback' => fn() => current_user_can( 'manage_options' ),
 		'execute_callback'    => function( $input = null ) {
+			$features = array();
+			foreach ( array_keys( mmsar_get_feature_keys() ) as $key ) {
+				$features[ $key ] = mmsar_feature_enabled( $key );
+			}
 			return array(
+				'features'           => $features,
 				'enabled_post_types' => mmsar_get_enabled_post_types(),
 				'root_selector'      => mmsar_get_root_selector(),
 			);

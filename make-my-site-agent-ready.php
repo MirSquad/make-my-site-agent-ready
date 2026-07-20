@@ -3,7 +3,7 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.6.1
+ * Version:           1.7.0
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.6.1' );
+define( 'MMSAR_VERSION', '1.7.0' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -36,6 +36,42 @@ require_once MMSAR_PLUGIN_DIR . 'includes/abilities.php';
 add_action( 'init', 'mmsar_load_textdomain' );
 function mmsar_load_textdomain() {
 	load_plugin_textdomain( 'make-my-site-agent-ready', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+}
+
+/**
+ * The features that can be switched off individually, and whether each is on by default.
+ * Every feature here shipped as always-on before 1.7.0, so all default to true — an install
+ * that upgrades must behave exactly as it did before the user touches anything.
+ */
+function mmsar_get_feature_keys() {
+	return [
+		'markdown'      => true,
+		'llms_txt'      => true,
+		'llms_full_txt' => true,
+		'robots_txt'    => true,
+		'security_txt'  => true,
+		'api_catalog'   => true,
+		'agent_skills'  => true,
+	];
+}
+
+/**
+ * Whether a feature is switched on.
+ *
+ * A missing key means "never saved" — either an install predating 1.7.0 or a feature added in a
+ * later version — and must fall back to the default rather than to off. Reading a missing key as
+ * off would silently disable working endpoints on every existing site the moment they update.
+ */
+function mmsar_feature_enabled( $key ) {
+	$defaults = mmsar_get_feature_keys();
+	if ( ! isset( $defaults[ $key ] ) ) {
+		return false;
+	}
+	$features = get_option( 'mmsar_features', [] );
+	if ( ! is_array( $features ) || ! array_key_exists( $key, $features ) ) {
+		return $defaults[ $key ];
+	}
+	return '1' === $features[ $key ];
 }
 
 function mmsar_get_enabled_post_types() {
@@ -66,6 +102,19 @@ function mmsar_check_version() {
 	}
 }
 
+/**
+ * Toggling a feature changes which rewrite rules get registered, and rewrite rules live in a
+ * cached option — so the new set does not take effect until the rules are flushed. The settings
+ * save happens before rules are registered on that request, so flush on the next one instead.
+ */
+add_action( 'wp_loaded', 'mmsar_maybe_flush_rewrites', 99 );
+function mmsar_maybe_flush_rewrites() {
+	if ( get_transient( 'mmsar_flush_needed' ) ) {
+		delete_transient( 'mmsar_flush_needed' );
+		flush_rewrite_rules();
+	}
+}
+
 // Prevent WordPress canonical redirect from appending trailing slashes to plugin-owned endpoints.
 add_filter( 'redirect_canonical', 'mmsar_prevent_canonical_redirect' );
 function mmsar_prevent_canonical_redirect( $redirect_url ) {
@@ -87,11 +136,23 @@ function mmsar_prevent_canonical_redirect( $redirect_url ) {
 	return $redirect_url;
 }
 
-MMSAR_Server::init();
-MMSAR_LLMs_Txt::init();
+// A disabled feature registers nothing at all — no rewrite rule, no filter, no header — so the
+// site behaves exactly as if that part of the plugin did not exist.
+if ( mmsar_feature_enabled( 'markdown' ) ) {
+	MMSAR_Server::init();
+	// The JSON-LD block exists to point agents at the .md alternate, so it has nothing to say
+	// once markdown URLs are off.
+	MMSAR_Structured_Data::init();
+}
+if ( mmsar_feature_enabled( 'llms_txt' ) ) {
+	MMSAR_LLMs_Txt::init();
+}
+if ( mmsar_feature_enabled( 'agent_skills' ) ) {
+	MMSAR_Agent_Skills::init();
+}
+// Endpoints covers llms-full.txt, security.txt, api-catalog and the robots.txt rewrite, and gates
+// each one individually inside.
 MMSAR_Endpoints::init();
-MMSAR_Agent_Skills::init();
-MMSAR_Structured_Data::init();
 MMSAR_Admin::init();
 
 add_action( 'save_post', 'mmsar_on_save_post', 20, 2 );
@@ -142,6 +203,9 @@ function mmsar_get_markdown_url() {
 
 add_action( 'wp_head', 'mmsar_alternate_link' );
 function mmsar_alternate_link() {
+	if ( ! mmsar_feature_enabled( 'markdown' ) ) {
+		return;
+	}
 	$md_url = mmsar_get_markdown_url();
 	if ( ! $md_url ) {
 		return;
@@ -158,16 +222,60 @@ function mmsar_alternate_link() {
  */
 add_action( 'template_redirect', 'mmsar_send_link_headers' );
 function mmsar_send_link_headers() {
-	header( 'Link: <' . esc_url_raw( home_url( '/.well-known/api-catalog' ) ) . '>; rel="api-catalog"', false );
-	header( 'Link: <' . esc_url_raw( home_url( '/.well-known/agent-skills/index.json' ) ) . '>; rel="service-desc"', false );
+	// Each header advertises an endpoint. Never advertise one that is switched off — a Link header
+	// pointing at a 404 is worse for an agent than no header at all.
+	if ( mmsar_feature_enabled( 'api_catalog' ) ) {
+		header( 'Link: <' . esc_url_raw( home_url( '/.well-known/api-catalog' ) ) . '>; rel="api-catalog"', false );
+	}
+	if ( mmsar_feature_enabled( 'agent_skills' ) ) {
+		header( 'Link: <' . esc_url_raw( home_url( '/.well-known/agent-skills/index.json' ) ) . '>; rel="service-desc"', false );
+	}
 
+	if ( ! mmsar_feature_enabled( 'markdown' ) ) {
+		return;
+	}
 	$md_url = mmsar_get_markdown_url();
 	if ( $md_url ) {
 		header( 'Link: <' . esc_url_raw( $md_url ) . '>; rel="alternate"; type="text/markdown"', false );
 	}
 }
 
-add_filter( 'robots_txt', 'mmsar_robots_txt', 10, 2 );
+/**
+ * The site's sitemap index URL, or '' if there isn't one worth advertising.
+ *
+ * Every SEO plugin uses a different filename, and WordPress core uses another one again, so
+ * hardcoding any single name means advertising a URL that 404s on most sites.
+ */
+function mmsar_get_sitemap_url() {
+	if ( defined( 'WPSEO_VERSION' ) || defined( 'RANK_MATH_VERSION' ) ) {
+		return home_url( '/sitemap_index.xml' );
+	}
+	if ( defined( 'AIOSEO_VERSION' ) ) {
+		return home_url( '/sitemap.xml' );
+	}
+	if ( defined( 'SEOPRESS_VERSION' ) ) {
+		return home_url( '/sitemaps.xml' );
+	}
+	// Core sitemaps. Can be disabled via the wp_sitemaps_enabled filter, so ask rather than assume.
+	// The index URL comes from WP_Sitemaps_Index::get_index_url() rather than a hardcoded
+	// /wp-sitemap.xml, because sites on plain permalinks serve it as a query string instead.
+	if ( function_exists( 'wp_sitemaps_get_server' ) ) {
+		$server = wp_sitemaps_get_server();
+		if ( $server && $server->sitemaps_enabled() && isset( $server->index ) && is_callable( [ $server->index, 'get_index_url' ] ) ) {
+			return $server->index->get_index_url();
+		}
+	}
+	return '';
+}
+
+if ( mmsar_feature_enabled( 'robots_txt' ) ) {
+	add_filter( 'robots_txt', 'mmsar_robots_txt', 99, 2 );
+	// The Sitemap directive is added separately, at the very end of the filter chain, because
+	// whether to add one at all depends on what every other plugin has already written. Yoast
+	// hooks robots_txt at 99999 and Rank Math similarly late, so any check made at a normal
+	// priority runs too early to see their output and would emit a second Sitemap line.
+	add_filter( 'robots_txt', 'mmsar_robots_txt_sitemap', PHP_INT_MAX, 2 );
+}
 function mmsar_robots_txt( $output, $public ) {
 	$ai_crawlers = [
 		'GPTBot',
@@ -194,15 +302,26 @@ function mmsar_robots_txt( $output, $public ) {
 		$rules .= "\n";
 	}
 
-	if ( strpos( $output, 'Sitemap:' ) === false ) {
-		$rules .= 'Sitemap: ' . home_url( '/sitemap_index.xml' ) . "\n";
-	}
-
 	if ( ! empty( $extra ) ) {
 		$rules .= "\n" . $extra . "\n";
 	}
 
 	return $output . $rules;
+}
+
+/**
+ * Appends a Sitemap directive, but only if the finished robots.txt does not already have one.
+ * Runs last in the filter chain so "already has one" is judged against the real final output.
+ */
+function mmsar_robots_txt_sitemap( $output, $public ) {
+	if ( false !== stripos( $output, 'Sitemap:' ) ) {
+		return $output;
+	}
+	$sitemap_url = mmsar_get_sitemap_url();
+	if ( ! $sitemap_url ) {
+		return $output;
+	}
+	return rtrim( $output, "\n" ) . "\n\nSitemap: " . $sitemap_url . "\n";
 }
 
 /**
@@ -224,10 +343,16 @@ function mmsar_content_signal_line() {
 
 register_activation_hook( __FILE__, 'mmsar_activate' );
 function mmsar_activate() {
-	MMSAR_Server::add_rewrite_rules();
-	MMSAR_LLMs_Txt::add_rewrite_rules();
+	if ( mmsar_feature_enabled( 'markdown' ) ) {
+		MMSAR_Server::add_rewrite_rules();
+	}
+	if ( mmsar_feature_enabled( 'llms_txt' ) ) {
+		MMSAR_LLMs_Txt::add_rewrite_rules();
+	}
+	if ( mmsar_feature_enabled( 'agent_skills' ) ) {
+		MMSAR_Agent_Skills::add_rewrite_rules();
+	}
 	MMSAR_Endpoints::add_rewrite_rules();
-	MMSAR_Agent_Skills::add_rewrite_rules();
 	flush_rewrite_rules();
 	mmsar_bulk_generate();
 }

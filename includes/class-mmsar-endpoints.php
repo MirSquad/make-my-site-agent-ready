@@ -15,28 +15,38 @@ class MMSAR_Endpoints {
 	}
 
 	public static function add_rewrite_rules() {
-		add_rewrite_rule(
-			'^llms-full\.txt$',
-			'index.php?mmsar_llms_full_txt=1',
-			'top'
-		);
-		add_rewrite_rule(
-			'^\.well-known/security\.txt$',
-			'index.php?mmsar_security_txt=1',
-			'top'
-		);
-		add_rewrite_rule(
-			'^\.well-known/api-catalog$',
-			'index.php?mmsar_api_catalog=1',
-			'top'
-		);
+		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {
+			add_rewrite_rule(
+				'^llms-full\.txt$',
+				'index.php?mmsar_llms_full_txt=1',
+				'top'
+			);
+		}
+		if ( mmsar_feature_enabled( 'security_txt' ) ) {
+			add_rewrite_rule(
+				'^\.well-known/security\.txt$',
+				'index.php?mmsar_security_txt=1',
+				'top'
+			);
+		}
+		if ( mmsar_feature_enabled( 'api_catalog' ) ) {
+			add_rewrite_rule(
+				'^\.well-known/api-catalog$',
+				'index.php?mmsar_api_catalog=1',
+				'top'
+			);
+		}
 		// Route robots.txt through WordPress so the robots_txt filter (and our AI rules) always fire,
-		// even if a physical robots.txt file exists in the webroot.
-		add_rewrite_rule(
-			'^robots\.txt$',
-			'index.php?robots=1',
-			'top'
-		);
+		// even if a physical robots.txt file exists in the webroot. This rule is what overrides a
+		// static file, so it must not be registered when the robots.txt feature is off — otherwise
+		// opting out would still hijack a hand-maintained robots.txt, just without adding anything.
+		if ( mmsar_feature_enabled( 'robots_txt' ) ) {
+			add_rewrite_rule(
+				'^robots\.txt$',
+				'index.php?robots=1',
+				'top'
+			);
+		}
 	}
 
 	public static function add_query_vars( $vars ) {
@@ -143,8 +153,37 @@ class MMSAR_Endpoints {
 		exit;
 	}
 
+	/**
+	 * Normalises whatever the user typed in the Contact field into a value security.txt accepts.
+	 *
+	 * RFC 9116 requires Contact to be a URI, so a bare path or a bare email address is not valid
+	 * on its own. People reasonably type all three forms, so accept them all and expand:
+	 *   https://example.com/contact  ->  used as-is
+	 *   /contact  or  contact        ->  https://thissite.com/contact
+	 *   security@example.com         ->  mailto:security@example.com
+	 */
+	public static function normalize_contact( $contact ) {
+		$contact = trim( (string) $contact );
+		if ( '' === $contact ) {
+			return '';
+		}
+		// Already a URI of some scheme (https:, mailto:, tel:) — trust it.
+		if ( preg_match( '#^[a-z][a-z0-9+.-]*:#i', $contact ) ) {
+			return $contact;
+		}
+		if ( is_email( $contact ) ) {
+			return 'mailto:' . $contact;
+		}
+		return home_url( '/' . ltrim( $contact, '/' ) );
+	}
+
 	public static function default_security_txt() {
-		$contact = home_url( '/contact' );
+		$contact = self::normalize_contact( get_option( 'mmsar_security_txt_contact', '' ) );
+		if ( '' === $contact ) {
+			// No contact configured. Guessing a URL that probably 404s would publish a broken
+			// security.txt, so fall back to the admin email, which always exists.
+			$contact = 'mailto:' . get_option( 'admin_email' );
+		}
 		$expires = gmdate( 'Y-m-d\T00:00:00.000\Z', strtotime( '+1 year' ) );
 		return "Contact: {$contact}\nExpires: {$expires}\nPreferred-Languages: en\n";
 	}
@@ -154,25 +193,41 @@ class MMSAR_Endpoints {
 	// -------------------------------------------------------------------------
 
 	private static function serve_api_catalog() {
-		$linkset = [
-			'linkset' => [
-				[
-					'anchor'      => home_url( '/' ),
-					'describedby' => [
-						[ 'href' => home_url( '/llms.txt' ), 'type' => 'text/markdown' ],
-						[ 'href' => home_url( '/llms-full.txt' ), 'type' => 'text/markdown' ],
-						[ 'href' => home_url( '/.well-known/security.txt' ), 'type' => 'text/plain' ],
-					],
-					'service-desc' => [
-						[ 'href' => home_url( '/.well-known/agent-skills/index.json' ), 'type' => 'application/json' ],
-					],
-					'item'        => [
-						[ 'href' => home_url( '/sitemap_index.xml' ), 'type' => 'application/xml' ],
-						[ 'href' => home_url( '/feed/' ), 'type' => 'application/rss+xml' ],
-					],
-				],
-			],
-		];
+		// This document exists to tell an agent what it can fetch, so it must only list resources
+		// that are actually being served — a catalog entry pointing at a switched-off endpoint
+		// sends agents to a 404 and makes the whole catalog less trustworthy.
+		$entry = [ 'anchor' => home_url( '/' ) ];
+
+		$describedby = [];
+		if ( mmsar_feature_enabled( 'llms_txt' ) ) {
+			$describedby[] = [ 'href' => home_url( '/llms.txt' ), 'type' => 'text/markdown' ];
+		}
+		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {
+			$describedby[] = [ 'href' => home_url( '/llms-full.txt' ), 'type' => 'text/markdown' ];
+		}
+		if ( mmsar_feature_enabled( 'security_txt' ) ) {
+			$describedby[] = [ 'href' => home_url( '/.well-known/security.txt' ), 'type' => 'text/plain' ];
+		}
+		if ( $describedby ) {
+			$entry['describedby'] = $describedby;
+		}
+
+		if ( mmsar_feature_enabled( 'agent_skills' ) ) {
+			$entry['service-desc'] = [
+				[ 'href' => home_url( '/.well-known/agent-skills/index.json' ), 'type' => 'application/json' ],
+			];
+		}
+
+		$items = [];
+		// Same detection the robots.txt Sitemap directive uses, rather than assuming Yoast's filename.
+		$sitemap_url = mmsar_get_sitemap_url();
+		if ( $sitemap_url ) {
+			$items[] = [ 'href' => $sitemap_url, 'type' => 'application/xml' ];
+		}
+		$items[] = [ 'href' => home_url( '/feed/' ), 'type' => 'application/rss+xml' ];
+		$entry['item'] = $items;
+
+		$linkset = [ 'linkset' => [ $entry ] ];
 
 		header( 'Content-Type: application/linkset+json; charset=UTF-8' );
 		header( 'Access-Control-Allow-Origin: *' );
