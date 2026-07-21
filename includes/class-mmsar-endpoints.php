@@ -107,6 +107,12 @@ class MMSAR_Endpoints {
 		$lines[] = '';
 
 		foreach ( $posts as $post ) {
+			// Never expose password-protected content in the full-text dump. The per-page .md endpoint
+			// returns 403 for these, so llms-full.txt must not become a side channel around that — a
+			// post can also gain a password after its markdown was already cached in _llmmd_content.
+			if ( ! empty( $post->post_password ) ) {
+				continue;
+			}
 			$title    = html_entity_decode( get_the_title( $post ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 			$url      = get_permalink( $post );
 			$markdown = get_post_meta( $post->ID, '_llmmd_content', true );
@@ -167,8 +173,10 @@ class MMSAR_Endpoints {
 		if ( '' === $contact ) {
 			return '';
 		}
-		// Already a URI of some scheme (https:, mailto:, tel:) — trust it.
-		if ( preg_match( '#^[a-z][a-z0-9+.-]*:#i', $contact ) ) {
+		// Already a URI with a safe scheme — trust it as-is. Only https, http, mailto and tel are
+		// accepted; anything else (e.g. a javascript: URI a compromised admin might paste) is not
+		// echoed into the published security.txt and instead falls through to the path handling below.
+		if ( preg_match( '#^(https?|mailto|tel):#i', $contact ) ) {
 			return $contact;
 		}
 		if ( is_email( $contact ) ) {
@@ -198,12 +206,15 @@ class MMSAR_Endpoints {
 		// sends agents to a 404 and makes the whole catalog less trustworthy.
 		$entry = [ 'anchor' => home_url( '/' ) ];
 
+		// The `type` here must match the Content-Type each endpoint actually sends: llms.txt and
+		// llms-full.txt are both served as text/plain (see serve_llms_full_txt / serve_llms_txt),
+		// so advertising text/markdown would misrepresent them to an agent reading the catalog.
 		$describedby = [];
 		if ( mmsar_feature_enabled( 'llms_txt' ) ) {
-			$describedby[] = [ 'href' => home_url( '/llms.txt' ), 'type' => 'text/markdown' ];
+			$describedby[] = [ 'href' => home_url( '/llms.txt' ), 'type' => 'text/plain' ];
 		}
 		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {
-			$describedby[] = [ 'href' => home_url( '/llms-full.txt' ), 'type' => 'text/markdown' ];
+			$describedby[] = [ 'href' => home_url( '/llms-full.txt' ), 'type' => 'text/plain' ];
 		}
 		if ( mmsar_feature_enabled( 'security_txt' ) ) {
 			$describedby[] = [ 'href' => home_url( '/.well-known/security.txt' ), 'type' => 'text/plain' ];

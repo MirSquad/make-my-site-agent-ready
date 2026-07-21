@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.8.0 — 2026-07-21
+
+### Change
+
+- Change: The settings page's separate "Quick Links" list (at the bottom of the page) has been folded into the Features toggle list at the top. Each feature that serves a fixed URL now shows a "View" link (e.g. `/llms.txt ↗`) right under its toggle, opening the live file in a new tab — and only when that feature is enabled, so a link never points at a switched-off endpoint. The standalone Quick Links section is removed.
+- Change: Features that have their own settings section further down the page (Markdown URLs → Markdown Endpoints, robots.txt → robots.txt, security.txt → security.txt) now show a "Configure below ↓" link beside the toggle that jumps straight to that section. This makes it discoverable that there's more to configure than the on/off switch — previously a user could easily miss the robots.txt Additional Rules box or the security.txt Contact field. Implemented with `before_section`/`after_section` anchor wrappers on the relevant settings sections.
+
+## 1.7.1 — 2026-07-21
+
+Security and hardening pass following an external code review.
+
+### Security
+
+- Fix: Password-protected posts could leak through `/llms-full.txt` and `/llms.txt`. The per-page `.md` endpoint already returned 403 for protected content, but the two aggregate feeds queried published posts without excluding password-protected ones — so a post that gained a password *after* its markdown was cached in `_llmmd_content` stayed readable in the full-text dump and listed in the index. `generate_llms_full_txt()` now skips any post with a `post_password`, the llms.txt queries pass `has_password => false`, and saving a post that has just been password-protected deletes its cached `_llmmd_content` and rebuilds both aggregate transients.
+- Fix: `MMSAR_Endpoints::normalize_contact()` trusted any URI scheme, so a compromised admin could publish a `javascript:` (or other unsafe-scheme) Contact line into security.txt. Only `https`, `http`, `mailto` and `tel` are now accepted as-is; anything else falls through to path/email handling.
+
+### Bug fix
+
+- Fix: `sanitize_content_signals()` fell back to `yes` for a missing or invalid value on *every* signal, including `ai_train` — contradicting the registered default (`no`) and `mmsar_content_signal_line()`, and silently opting content into AI training if the value ever arrived malformed. Each signal now falls back to its own correct default.
+- Fix: `MMSAR_Server::serve_markdown()` now explicitly requires `post_status === 'publish'` before serving. Defense in depth: `resolve_post_id()` can reach a post via `get_page_by_path()`, which returns posts of any status, so a draft/pending/private post could in principle have been served on edge permalink setups.
+
+### Change
+
+- Change: The Agent Skills SKILL.md and the `index.json` description now document only the endpoints that are actually enabled. Previously both advertised llms.txt, llms-full.txt and the per-page `.md` endpoints unconditionally, so an agent following a skill on a site with those features switched off would hit 404s — the same per-feature gating the api-catalog already applied.
+- Change: `/robots.txt` no longer appends `Allow: /` rules for AI crawlers when the site is set to discourage search engines (`blog_public = 0`). WordPress emits a blanket `Disallow: /` in that mode, and overriding it for AI bots contradicted the admin's explicit intent. The owner's own extra rules are still honoured.
+- Change: The api-catalog now advertises `llms.txt` and `llms-full.txt` as `text/plain`, matching the `Content-Type` header both endpoints actually send (they were cataloged as `text/markdown`).
+- Change: `mmsar_prevent_canonical_redirect()` guards against a missing `$_SERVER['REQUEST_URI']` and an unparseable path, avoiding notices in CLI or unusual request contexts.
+
 ## 1.7.0 — 2026-07-20
 
 ### New feature

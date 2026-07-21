@@ -80,7 +80,7 @@ class MMSAR_Admin {
 			],
 			'robots_txt'    => [
 				__( 'robots.txt AI crawler rules', 'make-my-site-agent-ready' ),
-				__( 'Adds explicit Allow rules for AI crawlers, a Content-Signal directive, and a Sitemap line. See the robots.txt section below.', 'make-my-site-agent-ready' ),
+				__( 'Adds explicit Allow rules for AI crawlers, a Content-Signal directive, and a Sitemap line.', 'make-my-site-agent-ready' ),
 			],
 			'security_txt'  => [
 				__( 'security.txt', 'make-my-site-agent-ready' ),
@@ -118,7 +118,38 @@ class MMSAR_Admin {
 		echo '</p>';
 	}
 
+	/**
+	 * The public URL each feature serves, for the "View" link next to its toggle. Only features that
+	 * have a single fixed endpoint are here — markdown is per-page, so it has no one URL to link to.
+	 */
+	public static function get_feature_urls() {
+		return [
+			'llms_txt'      => '/llms.txt',
+			'llms_full_txt' => '/llms-full.txt',
+			'robots_txt'    => '/robots.txt',
+			'security_txt'  => '/.well-known/security.txt',
+			'api_catalog'   => '/.well-known/api-catalog',
+			'agent_skills'  => '/.well-known/agent-skills/index.json',
+		];
+	}
+
+	/**
+	 * Features that also have a settings section further down the page, and the anchor id that jumps
+	 * to it (set as a before_section wrapper in register_settings). Lets a toggle say "there's more to
+	 * configure below" without the user having to scroll and hunt for the matching section.
+	 */
+	public static function get_feature_section_anchors() {
+		return [
+			'markdown'     => 'mmsar-section-markdown',
+			'robots_txt'   => 'mmsar-section-robots',
+			'security_txt' => 'mmsar-section-security',
+		];
+	}
+
 	public static function render_features_field() {
+		$urls    = self::get_feature_urls();
+		$anchors = self::get_feature_section_anchors();
+
 		foreach ( self::get_feature_labels() as $key => $labels ) {
 			list( $label, $description ) = $labels;
 			$checked                     = mmsar_feature_enabled( $key ) ? 'checked' : '';
@@ -128,6 +159,26 @@ class MMSAR_Admin {
 			echo esc_html( $label );
 			echo '</label>';
 			echo '<p class="description" style="margin-left:24px;">' . esc_html( $description ) . '</p>';
+
+			// Action links under the description: a live "View" link to the served file (only when the
+			// feature is on, so we never link to a 404), and a jump link to its settings section below.
+			$links = [];
+			if ( isset( $urls[ $key ] ) && mmsar_feature_enabled( $key ) ) {
+				$view_url = home_url( $urls[ $key ] );
+				$links[]  = '<a href="' . esc_url( $view_url ) . '" target="_blank" rel="noopener">'
+					. esc_html( $urls[ $key ] ) . ' <span aria-hidden="true">&#8599;</span></a>';
+			}
+			if ( isset( $anchors[ $key ] ) ) {
+				$links[] = '<a href="#' . esc_attr( $anchors[ $key ] ) . '">'
+					. esc_html__( 'Configure below', 'make-my-site-agent-ready' )
+					. ' <span aria-hidden="true">&#8595;</span></a>';
+			}
+			if ( $links ) {
+				echo '<p style="margin-left:24px;margin-top:4px;">'
+					. wp_kses_post( implode( ' &nbsp;·&nbsp; ', $links ) )
+					. '</p>';
+			}
+
 			echo '</div>';
 		}
 	}
@@ -162,7 +213,12 @@ class MMSAR_Admin {
 			'mmsar_main',
 			__( 'Markdown Endpoints', 'make-my-site-agent-ready' ),
 			'__return_false',
-			'make-my-site-agent-ready'
+			'make-my-site-agent-ready',
+			// Anchor wrapper so the "Markdown URLs (.md)" toggle above can jump straight here.
+			[
+				'before_section' => '<div id="mmsar-section-markdown">',
+				'after_section'  => '</div>',
+			]
 		);
 
 		add_settings_field(
@@ -190,7 +246,12 @@ class MMSAR_Admin {
 			'mmsar_robots_txt',
 			__( 'robots.txt', 'make-my-site-agent-ready' ),
 			[ __CLASS__, 'render_robots_txt_section' ],
-			'make-my-site-agent-ready'
+			'make-my-site-agent-ready',
+			// Anchor wrapper so the "robots.txt AI crawler rules" toggle above can jump straight here.
+			[
+				'before_section' => '<div id="mmsar-section-robots">',
+				'after_section'  => '</div>',
+			]
 		);
 
 		// These two only make sense while the plugin is actually generating robots.txt. When it
@@ -272,7 +333,12 @@ class MMSAR_Admin {
 			'mmsar_security_txt',
 			__( 'security.txt', 'make-my-site-agent-ready' ),
 			[ __CLASS__, 'render_security_txt_section' ],
-			'make-my-site-agent-ready'
+			'make-my-site-agent-ready',
+			// Anchor wrapper so the "security.txt" toggle above can jump straight here.
+			[
+				'before_section' => '<div id="mmsar-section-security">',
+				'after_section'  => '</div>',
+			]
 		);
 
 		add_settings_field(
@@ -339,10 +405,17 @@ class MMSAR_Admin {
 
 	public static function sanitize_content_signals( $input ) {
 		$valid = [ 'yes', 'no' ];
-		$out   = [];
+		// ai_train defaults to 'no' to match the registered default and mmsar_content_signal_line() —
+		// falling back to 'yes' for a missing/invalid value would silently opt content into training.
+		$defaults = [
+			'search'   => 'yes',
+			'ai_input' => 'yes',
+			'ai_train' => 'no',
+		];
+		$out = [];
 		foreach ( [ 'search', 'ai_input', 'ai_train' ] as $key ) {
-			$val         = isset( $input[ $key ] ) ? sanitize_key( $input[ $key ] ) : 'yes';
-			$out[ $key ] = in_array( $val, $valid, true ) ? $val : 'yes';
+			$val         = isset( $input[ $key ] ) ? sanitize_key( $input[ $key ] ) : $defaults[ $key ];
+			$out[ $key ] = in_array( $val, $valid, true ) ? $val : $defaults[ $key ];
 		}
 		return $out;
 	}
@@ -539,26 +612,6 @@ class MMSAR_Admin {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
-
-		// Only link to endpoints that are actually being served — a quick link to a 404 is a bug report
-		// waiting to happen. robots.txt always exists, so it is listed unconditionally.
-		$quick_links = [];
-		if ( mmsar_feature_enabled( 'llms_txt' ) ) {
-			$quick_links[ __( 'llms.txt', 'make-my-site-agent-ready' ) ] = home_url( '/llms.txt' );
-		}
-		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {
-			$quick_links[ __( 'llms-full.txt', 'make-my-site-agent-ready' ) ] = home_url( '/llms-full.txt' );
-		}
-		if ( mmsar_feature_enabled( 'security_txt' ) ) {
-			$quick_links[ __( 'security.txt', 'make-my-site-agent-ready' ) ] = home_url( '/.well-known/security.txt' );
-		}
-		$quick_links[ __( 'robots.txt', 'make-my-site-agent-ready' ) ] = home_url( '/robots.txt' );
-		if ( mmsar_feature_enabled( 'api_catalog' ) ) {
-			$quick_links[ __( 'api-catalog', 'make-my-site-agent-ready' ) ] = home_url( '/.well-known/api-catalog' );
-		}
-		if ( mmsar_feature_enabled( 'agent_skills' ) ) {
-			$quick_links[ __( 'Agent Skills index', 'make-my-site-agent-ready' ) ] = home_url( '/.well-known/agent-skills/index.json' );
-		}
 		?>
 		<div class="wrap">
 			<h1><?php esc_html_e( 'Make My Site Agent-Ready', 'make-my-site-agent-ready' ); ?></h1>
@@ -570,16 +623,6 @@ class MMSAR_Admin {
 				submit_button();
 				?>
 			</form>
-
-			<hr>
-
-			<h2><?php esc_html_e( 'Quick Links', 'make-my-site-agent-ready' ); ?></h2>
-			<?php foreach ( $quick_links as $label => $link_url ) : ?>
-				<p>
-					<strong><?php echo esc_html( $label ); ?>:</strong>
-					<a href="<?php echo esc_url( $link_url ); ?>" target="_blank"><?php echo esc_html( $link_url ); ?></a>
-				</p>
-			<?php endforeach; ?>
 
 			<hr>
 

@@ -51,6 +51,17 @@ class MMSAR_Server {
 
 		$post = get_post( $post_id );
 
+		// Defense in depth: only ever serve markdown for a published post. resolve_post_id() can reach
+		// a post through url_to_postid() or get_page_by_path() (which returns any status), so a draft,
+		// pending, private or trashed post could otherwise slip through even though its markdown is
+		// never cached. Treat anything not published as not found.
+		if ( ! $post || 'publish' !== $post->post_status ) {
+			status_header( 404 );
+			echo '# 404 Not Found' . "\n\n";
+			echo esc_html__( 'The requested content was not found.', 'make-my-site-agent-ready' ) . "\n";
+			exit;
+		}
+
 		if ( ! empty( $post->post_password ) ) {
 			status_header( 403 );
 			echo '# 403 Forbidden' . "\n\n";

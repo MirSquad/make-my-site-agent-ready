@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.7.0
+Stable tag: 1.8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -70,7 +70,28 @@ A companion to `llms.txt` — it concatenates the full markdown content of all p
 
 Yes. Go to Settings > Agent-Ready and check the post types you want to enable.
 
+= I have a very large site — will activation or "Regenerate all" time out? =
+
+On activation and when you regenerate manually, the plugin converts every published post in one request, which can be slow or hit memory/time limits on sites with thousands of posts. Use the `mmsar_bulk_generate_limit` filter to cap how many posts are processed per run (default `-1` = all):
+
+`add_filter( 'mmsar_bulk_generate_limit', function() { return 500; } );`
+
+Remaining posts are still converted on demand the first time their `.md`, `/llms.txt`, or `/llms-full.txt` is requested, and the result is cached from then on.
+
 == Changelog ==
+
+= 1.8.0 =
+* Change: The settings page is easier to navigate. The old "Quick Links" list at the bottom is gone — each feature toggle at the top now carries its own "View" link to the live file (shown only while the feature is on), so everything is in one place.
+* Change: Feature toggles that have more to configure (Markdown URLs, robots.txt, security.txt) now show a "Configure below ↓" link that jumps to the matching settings section, so options like the robots.txt Additional Rules box and the security.txt Contact field are easier to find.
+
+= 1.7.1 =
+* Security: Password-protected posts could appear in `/llms-full.txt` and `/llms.txt` (the per-page `.md` endpoint already blocked them). Both aggregate feeds now exclude password-protected content, and password-protecting a post clears its cached markdown.
+* Security: The security.txt Contact line now only accepts safe URI schemes (https, http, mailto, tel), so an unsafe scheme like `javascript:` can no longer be published.
+* Fix: Content Signals sanitization no longer falls back to "yes" for `ai-train` — a malformed value now correctly defaults to "no", matching the setting's own default.
+* Fix: Markdown `.md` responses now explicitly require a published post (defense in depth against edge permalink setups resolving to non-public content).
+* Change: Agent Skills discovery (SKILL.md and index.json) now documents only the endpoints that are actually enabled, so agents aren't sent to 404s when a feature is switched off.
+* Change: On sites set to discourage search engines (blog_public = 0), the plugin no longer adds `Allow: /` AI-crawler rules to robots.txt, respecting the admin's intent.
+* Change: api-catalog advertises llms.txt / llms-full.txt as `text/plain`, matching the headers they actually send.
 
 = 1.7.0 =
 * New: Every feature can now be switched off individually under Settings > Agent-Ready — markdown URLs, llms.txt, llms-full.txt, robots.txt rules, security.txt, api-catalog, and Agent Skills discovery. All default to on, so updating changes nothing until you choose otherwise.

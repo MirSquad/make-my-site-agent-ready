@@ -140,6 +140,7 @@ class MMSAR_LLMs_Txt {
 		return get_posts( [
 			'post_type'      => $type,
 			'post_status'    => 'publish',
+			'has_password'   => false,
 			'posts_per_page' => -1,
 			'orderby'        => 'title',
 			'order'          => 'ASC',
@@ -153,6 +154,7 @@ class MMSAR_LLMs_Txt {
 			$posts = get_posts( [
 				'post_type'      => $type,
 				'post_status'    => 'publish',
+				'has_password'   => false,
 				'posts_per_page' => -1,
 				'orderby'        => 'title',
 				'order'          => 'ASC',
@@ -171,6 +173,7 @@ class MMSAR_LLMs_Txt {
 		return get_posts( [
 			'post_type'      => 'post',
 			'post_status'    => 'publish',
+			'has_password'   => false,
 			'cat'            => $cat_id,
 			'posts_per_page' => -1,
 			'orderby'        => 'date',

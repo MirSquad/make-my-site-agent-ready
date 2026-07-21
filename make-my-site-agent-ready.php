@@ -3,7 +3,7 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.7.0
+ * Version:           1.8.0
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.7.0' );
+define( 'MMSAR_VERSION', '1.8.0' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -118,8 +118,15 @@ function mmsar_maybe_flush_rewrites() {
 // Prevent WordPress canonical redirect from appending trailing slashes to plugin-owned endpoints.
 add_filter( 'redirect_canonical', 'mmsar_prevent_canonical_redirect' );
 function mmsar_prevent_canonical_redirect( $redirect_url ) {
+	$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '';
+	if ( '' === $request_uri ) {
+		return $redirect_url;
+	}
 	// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Reading path only, not using in queries or output.
-	$path         = parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH );
+	$path = parse_url( $request_uri, PHP_URL_PATH );
+	if ( ! $path ) {
+		return $redirect_url;
+	}
 	$plugin_paths = [
 		'/llms.txt',
 		'/llms-full.txt',
@@ -165,6 +172,15 @@ function mmsar_on_save_post( $post_id, $post ) {
 	}
 	if ( 'publish' !== $post->post_status ) {
 		delete_post_meta( $post_id, '_llmmd_content' );
+		return;
+	}
+	// A post that has just been password-protected must not keep its cached markdown around: the
+	// per-page .md endpoint 403s on it, and llms-full.txt now skips it, so leaving _llmmd_content in
+	// place would only be a stale copy of protected content. Drop it and rebuild the shared indexes.
+	if ( ! empty( $post->post_password ) ) {
+		delete_post_meta( $post_id, '_llmmd_content' );
+		delete_transient( 'llmmd_llms_txt' );
+		delete_transient( 'mmsar_llms_full_txt' );
 		return;
 	}
 	if ( ! in_array( $post->post_type, mmsar_get_enabled_post_types(), true ) ) {
@@ -277,6 +293,19 @@ if ( mmsar_feature_enabled( 'robots_txt' ) ) {
 	add_filter( 'robots_txt', 'mmsar_robots_txt_sitemap', PHP_INT_MAX, 2 );
 }
 function mmsar_robots_txt( $output, $public ) {
+	$extra = trim( get_option( 'mmsar_robots_txt_extra', '' ) );
+
+	// When the site is set to discourage search engines (blog_public = 0), WordPress emits a
+	// blanket Disallow: / and the admin has explicitly asked crawlers to stay away. Appending our
+	// own "Allow: /" for AI bots would silently override that intent, so add none of the AI-crawler
+	// rules here. The owner's own extra rules are still honoured — that text is theirs, not ours.
+	if ( ! $public ) {
+		if ( ! empty( $extra ) ) {
+			return $output . "\n" . $extra . "\n";
+		}
+		return $output;
+	}
+
 	$ai_crawlers = [
 		'GPTBot',
 		'ClaudeBot',
@@ -286,7 +315,6 @@ function mmsar_robots_txt( $output, $public ) {
 		'FacebookBot',
 	];
 
-	$extra = trim( get_option( 'mmsar_robots_txt_extra', '' ) );
 	// Skip auto-adding Content-Signal if the site owner already added one manually in the
 	// extra-rules textarea, so we never emit two conflicting directives.
 	$has_manual_signal  = ( false !== stripos( $extra, 'Content-Signal:' ) );
