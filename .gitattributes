@@ -1,0 +1,13 @@
+# Keep GitHub's downloadable archives limited to the plugin's runtime files.
+#
+# `git archive` powers both the release "Source code" assets and the repo's
+# "Code -> Download ZIP" button. Anything marked `export-ignore` is dropped from
+# that output, so a user who downloads the repo as a zip and installs it gets a
+# clean plugin — not the CI config, dev docs, or git metadata that would ride
+# along otherwise. (The release workflow builds its own named asset from an
+# explicit file list, so this is a second, independent layer of the same intent.)
+/.github        export-ignore
+/.gitignore     export-ignore
+/.gitattributes export-ignore
+/README.md      export-ignore
+/CHANGELOG.md   export-ignore

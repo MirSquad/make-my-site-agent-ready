@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.1 — 2026-07-22
+
+### Packaging
+
+- Fix: Added a `.gitattributes` with `export-ignore` rules so the archives GitHub generates from the repo — both the green "Code → Download ZIP" button and the auto-generated "Source code" assets on each release — contain only the plugin's runtime files (`includes/`, the main PHP file, `readme.txt`, `uninstall.php`, `vendor/`). Previously those archives also carried `.github/`, `README.md`, `CHANGELOG.md`, and `.gitignore`; a user who installed one of those source zips got dev/CI files bundled into their plugin directory. No functional change to the plugin — the named release asset built by the workflow was already clean.
+
 ## 1.8.0 — 2026-07-21
 
 ### Change
