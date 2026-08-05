@@ -1,17 +1,36 @@
 <?php
+/**
+ * Make My Site Agent-Ready — admin component.
+ *
+ * @package Make_My_Site_Agent_Ready
+ */
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * MMSAR Admin handler.
+ */
 class MMSAR_Admin {
 
+	/**
+	 * Init.
+	 *
+	 * @return void
+	 */
 	public static function init() {
-		add_action( 'admin_menu', [ __CLASS__, 'add_menu' ] );
-		add_action( 'admin_init', [ __CLASS__, 'register_settings' ] );
-		add_action( 'admin_notices', [ __CLASS__, 'static_robots_notice' ] );
-		add_action( 'admin_notices', [ __CLASS__, 'structured_data_conflict_notice' ] );
+		add_action( 'admin_menu', array( __CLASS__, 'add_menu' ) );
+		add_action( 'admin_init', array( __CLASS__, 'register_settings' ) );
+		add_action( 'admin_notices', array( __CLASS__, 'static_robots_notice' ) );
+		add_action( 'admin_notices', array( __CLASS__, 'structured_data_conflict_notice' ) );
 	}
 
+	/**
+	 * Structured data conflict notice.
+	 *
+	 * @return void
+	 */
 	public static function structured_data_conflict_notice() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
@@ -29,6 +48,11 @@ class MMSAR_Admin {
 		echo '</p></div>';
 	}
 
+	/**
+	 * Static robots notice.
+	 *
+	 * @return void
+	 */
 	public static function static_robots_notice() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
@@ -51,13 +75,18 @@ class MMSAR_Admin {
 		echo '</p></div>';
 	}
 
+	/**
+	 * Add menu.
+	 *
+	 * @return void
+	 */
 	public static function add_menu() {
 		add_options_page(
 			__( 'Make My Site Agent-Ready', 'make-my-site-agent-ready' ),
 			__( 'Agent-Ready', 'make-my-site-agent-ready' ),
 			'manage_options',
 			'make-my-site-agent-ready',
-			[ __CLASS__, 'render_page' ]
+			array( __CLASS__, 'render_page' )
 		);
 	}
 
@@ -65,40 +94,46 @@ class MMSAR_Admin {
 	 * Label and "what you lose" copy for each toggleable feature, in display order.
 	 */
 	public static function get_feature_labels() {
-		return [
-			'markdown'      => [
+		return array(
+			'markdown'      => array(
 				__( 'Markdown URLs (.md)', 'make-my-site-agent-ready' ),
 				__( 'Serves a plain-markdown version of each post and page at its URL plus .md, and points agents at it via a <link> tag and Link header. Turning this off also disables the JSON-LD structured data below, which exists only to advertise these URLs.', 'make-my-site-agent-ready' ),
-			],
-			'llms_txt'      => [
+			),
+			'llms_txt'      => array(
 				__( 'llms.txt', 'make-my-site-agent-ready' ),
 				__( 'An index of your site at /llms.txt, so an agent can see what content exists in one request.', 'make-my-site-agent-ready' ),
-			],
-			'llms_full_txt' => [
+			),
+			'llms_full_txt' => array(
 				__( 'llms-full.txt', 'make-my-site-agent-ready' ),
 				__( 'The full markdown text of your content in a single file at /llms-full.txt.', 'make-my-site-agent-ready' ),
-			],
-			'robots_txt'    => [
+			),
+			'robots_txt'    => array(
 				__( 'robots.txt AI crawler rules', 'make-my-site-agent-ready' ),
 				__( 'Adds explicit Allow rules for AI crawlers, a Content-Signal directive, and a Sitemap line.', 'make-my-site-agent-ready' ),
-			],
-			'security_txt'  => [
+			),
+			'security_txt'  => array(
 				__( 'security.txt', 'make-my-site-agent-ready' ),
 				__( 'Publishes a security contact at /.well-known/security.txt (RFC 9116).', 'make-my-site-agent-ready' ),
-			],
-			'api_catalog'   => [
+			),
+			'api_catalog'   => array(
 				__( 'api-catalog', 'make-my-site-agent-ready' ),
 				__( 'Lists your site\'s machine-readable endpoints at /.well-known/api-catalog (RFC 9727).', 'make-my-site-agent-ready' ),
-			],
-			'agent_skills'  => [
+			),
+			'agent_skills'  => array(
 				__( 'Agent Skills discovery', 'make-my-site-agent-ready' ),
 				__( 'Publishes an Agent Skills index at /.well-known/agent-skills/ describing how agents can work with this site.', 'make-my-site-agent-ready' ),
-			],
-		];
+			),
+		);
 	}
 
+	/**
+	 * Sanitize features.
+	 *
+	 * @param mixed $input Input.
+	 * @return mixed Result.
+	 */
 	public static function sanitize_features( $input ) {
-		$out = [];
+		$out = array();
 		// Write every key explicitly. An unchecked checkbox posts nothing, so a key missing from
 		// $input means "off" here — unlike mmsar_feature_enabled(), where missing means "never saved".
 		foreach ( array_keys( mmsar_get_feature_keys() ) as $key ) {
@@ -112,6 +147,11 @@ class MMSAR_Admin {
 		return $out;
 	}
 
+	/**
+	 * Render features section.
+	 *
+	 * @return void
+	 */
 	public static function render_features_section() {
 		echo '<p>';
 		esc_html_e( 'Everything this plugin publishes is listed here. All of it is on by default — switch off anything you already handle elsewhere, and the plugin will stop touching it entirely.', 'make-my-site-agent-ready' );
@@ -123,14 +163,14 @@ class MMSAR_Admin {
 	 * have a single fixed endpoint are here — markdown is per-page, so it has no one URL to link to.
 	 */
 	public static function get_feature_urls() {
-		return [
+		return array(
 			'llms_txt'      => '/llms.txt',
 			'llms_full_txt' => '/llms-full.txt',
 			'robots_txt'    => '/robots.txt',
 			'security_txt'  => '/.well-known/security.txt',
 			'api_catalog'   => '/.well-known/api-catalog',
 			'agent_skills'  => '/.well-known/agent-skills/index.json',
-		];
+		);
 	}
 
 	/**
@@ -139,13 +179,18 @@ class MMSAR_Admin {
 	 * configure below" without the user having to scroll and hunt for the matching section.
 	 */
 	public static function get_feature_section_anchors() {
-		return [
+		return array(
 			'markdown'     => 'mmsar-section-markdown',
 			'robots_txt'   => 'mmsar-section-robots',
 			'security_txt' => 'mmsar-section-security',
-		];
+		);
 	}
 
+	/**
+	 * Render features field.
+	 *
+	 * @return void
+	 */
 	public static function render_features_field() {
 		$urls    = self::get_feature_urls();
 		$anchors = self::get_feature_section_anchors();
@@ -162,7 +207,7 @@ class MMSAR_Admin {
 
 			// Action links under the description: a live "View" link to the served file (only when the
 			// feature is on, so we never link to a 404), and a jump link to its settings section below.
-			$links = [];
+			$links = array();
 			if ( isset( $urls[ $key ] ) && mmsar_feature_enabled( $key ) ) {
 				$view_url = home_url( $urls[ $key ] );
 				$links[]  = '<a href="' . esc_url( $view_url ) . '" target="_blank" rel="noopener">'
@@ -183,31 +228,44 @@ class MMSAR_Admin {
 		}
 	}
 
+	/**
+	 * Register settings.
+	 *
+	 * @return void
+	 */
 	public static function register_settings() {
 		// Feature toggles.
-		register_setting( 'mmsar_settings_group', 'mmsar_features', [
-			'sanitize_callback' => [ __CLASS__, 'sanitize_features' ],
-		] );
+		register_setting(
+			'mmsar_settings_group',
+			'mmsar_features',
+			array(
+				'sanitize_callback' => array( __CLASS__, 'sanitize_features' ),
+			)
+		);
 
 		add_settings_section(
 			'mmsar_features',
 			__( 'Features', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_features_section' ],
+			array( __CLASS__, 'render_features_section' ),
 			'make-my-site-agent-ready'
 		);
 
 		add_settings_field(
 			'mmsar_features_enabled',
 			__( 'Enabled Features', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_features_field' ],
+			array( __CLASS__, 'render_features_field' ),
 			'make-my-site-agent-ready',
 			'mmsar_features'
 		);
 
 		// Main settings (option key kept as llmmd_settings for data continuity).
-		register_setting( 'mmsar_settings_group', 'llmmd_settings', [
-			'sanitize_callback' => [ __CLASS__, 'sanitize_settings' ],
-		] );
+		register_setting(
+			'mmsar_settings_group',
+			'llmmd_settings',
+			array(
+				'sanitize_callback' => array( __CLASS__, 'sanitize_settings' ),
+			)
+		);
 
 		add_settings_section(
 			'mmsar_main',
@@ -215,16 +273,16 @@ class MMSAR_Admin {
 			'__return_false',
 			'make-my-site-agent-ready',
 			// Anchor wrapper so the "Markdown URLs (.md)" toggle above can jump straight here.
-			[
+			array(
 				'before_section' => '<div id="mmsar-section-markdown">',
 				'after_section'  => '</div>',
-			]
+			)
 		);
 
 		add_settings_field(
 			'mmsar_post_types',
 			__( 'Enabled Post Types', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_post_types_field' ],
+			array( __CLASS__, 'render_post_types_field' ),
 			'make-my-site-agent-ready',
 			'mmsar_main'
 		);
@@ -232,26 +290,30 @@ class MMSAR_Admin {
 		add_settings_field(
 			'mmsar_root_selector',
 			__( 'Content Root Selector', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_root_selector_field' ],
+			array( __CLASS__, 'render_root_selector_field' ),
 			'make-my-site-agent-ready',
 			'mmsar_main'
 		);
 
 		// robots.txt settings.
-		register_setting( 'mmsar_settings_group', 'mmsar_robots_txt_extra', [
-			'sanitize_callback' => 'sanitize_textarea_field',
-		] );
+		register_setting(
+			'mmsar_settings_group',
+			'mmsar_robots_txt_extra',
+			array(
+				'sanitize_callback' => 'sanitize_textarea_field',
+			)
+		);
 
 		add_settings_section(
 			'mmsar_robots_txt',
 			__( 'robots.txt', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_robots_txt_section' ],
+			array( __CLASS__, 'render_robots_txt_section' ),
 			'make-my-site-agent-ready',
 			// Anchor wrapper so the "robots.txt AI crawler rules" toggle above can jump straight here.
-			[
+			array(
 				'before_section' => '<div id="mmsar-section-robots">',
 				'after_section'  => '</div>',
-			]
+			)
 		);
 
 		// These two only make sense while the plugin is actually generating robots.txt. When it
@@ -260,7 +322,7 @@ class MMSAR_Admin {
 			add_settings_field(
 				'mmsar_robots_txt_preview',
 				__( 'Current Content', 'make-my-site-agent-ready' ),
-				[ __CLASS__, 'render_robots_txt_preview_field' ],
+				array( __CLASS__, 'render_robots_txt_preview_field' ),
 				'make-my-site-agent-ready',
 				'mmsar_robots_txt'
 			);
@@ -268,83 +330,99 @@ class MMSAR_Admin {
 			add_settings_field(
 				'mmsar_robots_txt_extra',
 				__( 'Additional Rules', 'make-my-site-agent-ready' ),
-				[ __CLASS__, 'render_robots_txt_field' ],
+				array( __CLASS__, 'render_robots_txt_field' ),
 				'make-my-site-agent-ready',
 				'mmsar_robots_txt'
 			);
 		}
 
 		// Content Signals settings.
-		register_setting( 'mmsar_settings_group', 'mmsar_content_signals', [
-			'sanitize_callback' => [ __CLASS__, 'sanitize_content_signals' ],
-			'default'           => [
-				'search'   => 'yes',
-				'ai_input' => 'yes',
-				'ai_train' => 'no',
-			],
-		] );
+		register_setting(
+			'mmsar_settings_group',
+			'mmsar_content_signals',
+			array(
+				'sanitize_callback' => array( __CLASS__, 'sanitize_content_signals' ),
+				'default'           => array(
+					'search'   => 'yes',
+					'ai_input' => 'yes',
+					'ai_train' => 'no',
+				),
+			)
+		);
 
 		add_settings_section(
 			'mmsar_content_signals',
 			__( 'Content Signals', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_content_signals_section' ],
+			array( __CLASS__, 'render_content_signals_section' ),
 			'make-my-site-agent-ready'
 		);
 
 		add_settings_field(
 			'mmsar_content_signals_values',
 			__( 'AI Usage Preferences', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_content_signals_field' ],
+			array( __CLASS__, 'render_content_signals_field' ),
 			'make-my-site-agent-ready',
 			'mmsar_content_signals'
 		);
 
 		// Structured data (JSON-LD) settings.
-		register_setting( 'mmsar_settings_group', 'mmsar_structured_data', [
-			'sanitize_callback' => [ __CLASS__, 'sanitize_checkbox' ],
-			'default'           => '',
-		] );
+		register_setting(
+			'mmsar_settings_group',
+			'mmsar_structured_data',
+			array(
+				'sanitize_callback' => array( __CLASS__, 'sanitize_checkbox' ),
+				'default'           => '',
+			)
+		);
 
 		add_settings_section(
 			'mmsar_structured_data',
 			__( 'Structured Data', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_structured_data_section' ],
+			array( __CLASS__, 'render_structured_data_section' ),
 			'make-my-site-agent-ready'
 		);
 
 		add_settings_field(
 			'mmsar_structured_data_enabled',
 			__( 'JSON-LD', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_structured_data_field' ],
+			array( __CLASS__, 'render_structured_data_field' ),
 			'make-my-site-agent-ready',
 			'mmsar_structured_data'
 		);
 
 		// security.txt settings.
-		register_setting( 'mmsar_settings_group', 'mmsar_security_txt_contact', [
-			'sanitize_callback' => 'sanitize_text_field',
-		] );
+		register_setting(
+			'mmsar_settings_group',
+			'mmsar_security_txt_contact',
+			array(
+				'sanitize_callback' => 'sanitize_text_field',
+			)
+		);
 
-		register_setting( 'mmsar_settings_group', 'mmsar_security_txt', [
-			'sanitize_callback' => 'sanitize_textarea_field',
-		] );
+		register_setting(
+			'mmsar_settings_group',
+			'mmsar_security_txt',
+			array(
+				'sanitize_callback' => 'sanitize_textarea_field',
+			)
+		);
 
 		add_settings_section(
 			'mmsar_security_txt',
 			__( 'security.txt', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_security_txt_section' ],
+			array( __CLASS__, 'render_security_txt_section' ),
 			'make-my-site-agent-ready',
 			// Anchor wrapper so the "security.txt" toggle above can jump straight here.
-			[
+			array(
 				'before_section' => '<div id="mmsar-section-security">',
 				'after_section'  => '</div>',
-			]
+			)
 		);
 
 		add_settings_field(
 			'mmsar_security_txt_contact',
 			__( 'Security Contact', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_security_txt_contact_field' ],
+			array( __CLASS__, 'render_security_txt_contact_field' ),
 			'make-my-site-agent-ready',
 			'mmsar_security_txt'
 		);
@@ -352,19 +430,25 @@ class MMSAR_Admin {
 		add_settings_field(
 			'mmsar_security_txt_content',
 			__( 'Full Content (advanced)', 'make-my-site-agent-ready' ),
-			[ __CLASS__, 'render_security_txt_field' ],
+			array( __CLASS__, 'render_security_txt_field' ),
 			'make-my-site-agent-ready',
 			'mmsar_security_txt'
 		);
 	}
 
+	/**
+	 * Sanitize settings.
+	 *
+	 * @param mixed $input Input.
+	 * @return mixed Result.
+	 */
 	public static function sanitize_settings( $input ) {
-		$sanitized = [];
+		$sanitized = array();
 
 		if ( isset( $input['post_types'] ) && is_array( $input['post_types'] ) ) {
 			$sanitized['post_types'] = array_map( 'sanitize_key', $input['post_types'] );
 		} else {
-			$sanitized['post_types'] = [];
+			$sanitized['post_types'] = array();
 		}
 
 		if ( isset( $input['root_selector'] ) ) {
@@ -379,10 +463,15 @@ class MMSAR_Admin {
 		return $sanitized;
 	}
 
+	/**
+	 * Render post types field.
+	 *
+	 * @return void
+	 */
 	public static function render_post_types_field() {
-		$settings   = get_option( 'llmmd_settings', [] );
-		$enabled    = isset( $settings['post_types'] ) ? $settings['post_types'] : [ 'post', 'page' ];
-		$post_types = get_post_types( [ 'public' => true ], 'objects' );
+		$settings   = get_option( 'llmmd_settings', array() );
+		$enabled    = isset( $settings['post_types'] ) ? $settings['post_types'] : array( 'post', 'page' );
+		$post_types = get_post_types( array( 'public' => true ), 'objects' );
 
 		foreach ( $post_types as $pt ) {
 			if ( 'attachment' === $pt->name ) {
@@ -390,36 +479,52 @@ class MMSAR_Admin {
 			}
 			$checked = in_array( $pt->name, $enabled, true ) ? 'checked' : '';
 			echo '<label style="display:block;margin-bottom:6px;">';
-			echo '<input type="checkbox" name="llmmd_settings[post_types][]" value="' . esc_attr( $pt->name ) . '" ' . $checked . '> ';
+			echo '<input type="checkbox" name="llmmd_settings[post_types][]" value="' . esc_attr( $pt->name ) . '" ' . esc_attr( $checked ) . '> ';
 			echo esc_html( $pt->labels->name ) . ' <code>' . esc_html( $pt->name ) . '</code>';
 			echo '</label>';
 		}
 	}
 
+	/**
+	 * Render root selector field.
+	 *
+	 * @return void
+	 */
 	public static function render_root_selector_field() {
-		$settings = get_option( 'llmmd_settings', [] );
+		$settings = get_option( 'llmmd_settings', array() );
 		$value    = isset( $settings['root_selector'] ) ? $settings['root_selector'] : '';
 		echo '<input type="text" name="llmmd_settings[root_selector]" value="' . esc_attr( $value ) . '" class="regular-text" placeholder="main, article, .entry-content">';
 		echo '<p class="description">' . esc_html__( 'CSS selector(s) to extract content from. Leave empty to use the full post content. Comma-separated for multiple selectors.', 'make-my-site-agent-ready' ) . '</p>';
 	}
 
+	/**
+	 * Sanitize content signals.
+	 *
+	 * @param mixed $input Input.
+	 * @return mixed Result.
+	 */
 	public static function sanitize_content_signals( $input ) {
-		$valid = [ 'yes', 'no' ];
+		$valid = array( 'yes', 'no' );
 		// ai_train defaults to 'no' to match the registered default and mmsar_content_signal_line() —
 		// falling back to 'yes' for a missing/invalid value would silently opt content into training.
-		$defaults = [
+		$defaults = array(
 			'search'   => 'yes',
 			'ai_input' => 'yes',
 			'ai_train' => 'no',
-		];
-		$out = [];
-		foreach ( [ 'search', 'ai_input', 'ai_train' ] as $key ) {
+		);
+		$out      = array();
+		foreach ( array( 'search', 'ai_input', 'ai_train' ) as $key ) {
 			$val         = isset( $input[ $key ] ) ? sanitize_key( $input[ $key ] ) : $defaults[ $key ];
 			$out[ $key ] = in_array( $val, $valid, true ) ? $val : $defaults[ $key ];
 		}
 		return $out;
 	}
 
+	/**
+	 * Render content signals section.
+	 *
+	 * @return void
+	 */
 	public static function render_content_signals_section() {
 		if ( ! mmsar_feature_enabled( 'robots_txt' ) ) {
 			echo '<p class="description"><em>';
@@ -432,27 +537,35 @@ class MMSAR_Admin {
 		echo '</p>';
 	}
 
+	/**
+	 * Render content signals field.
+	 *
+	 * @return void
+	 */
 	public static function render_content_signals_field() {
-		$settings = get_option( 'mmsar_content_signals', [
-			'search'   => 'yes',
-			'ai_input' => 'yes',
-			'ai_train' => 'no',
-		] );
+		$settings = get_option(
+			'mmsar_content_signals',
+			array(
+				'search'   => 'yes',
+				'ai_input' => 'yes',
+				'ai_train' => 'no',
+			)
+		);
 
-		$fields = [
-			'search'   => [
+		$fields = array(
+			'search'   => array(
 				__( 'Search', 'make-my-site-agent-ready' ),
 				__( 'Allow this content to be indexed by search engines.', 'make-my-site-agent-ready' ),
-			],
-			'ai_input' => [
+			),
+			'ai_input' => array(
 				__( 'AI Input', 'make-my-site-agent-ready' ),
 				__( 'Allow this content to be fetched as live input to an AI system (e.g. an assistant answering a question by reading this page).', 'make-my-site-agent-ready' ),
-			],
-			'ai_train' => [
+			),
+			'ai_train' => array(
 				__( 'AI Train', 'make-my-site-agent-ready' ),
 				__( 'Allow this content to be included in a model training corpus.', 'make-my-site-agent-ready' ),
-			],
-		];
+			),
+		);
 
 		foreach ( $fields as $key => $labels ) {
 			list( $label, $description ) = $labels;
@@ -468,10 +581,21 @@ class MMSAR_Admin {
 		}
 	}
 
+	/**
+	 * Sanitize checkbox.
+	 *
+	 * @param mixed $input Input.
+	 * @return mixed Result.
+	 */
 	public static function sanitize_checkbox( $input ) {
 		return ( '1' === $input ) ? '1' : '';
 	}
 
+	/**
+	 * Render structured data section.
+	 *
+	 * @return void
+	 */
 	public static function render_structured_data_section() {
 		if ( ! mmsar_feature_enabled( 'markdown' ) ) {
 			echo '<p class="description"><em>';
@@ -488,14 +612,24 @@ class MMSAR_Admin {
 		echo '</p>';
 	}
 
+	/**
+	 * Render structured data field.
+	 *
+	 * @return void
+	 */
 	public static function render_structured_data_field() {
 		$checked = ( '1' === get_option( 'mmsar_structured_data', '' ) ) ? 'checked' : '';
 		echo '<label>';
-		echo '<input type="checkbox" name="mmsar_structured_data" value="1" ' . $checked . '> ';
+		echo '<input type="checkbox" name="mmsar_structured_data" value="1" ' . esc_attr( $checked ) . '> ';
 		esc_html_e( 'Add JSON-LD structured data pointing agents at the markdown alternate.', 'make-my-site-agent-ready' );
 		echo '</label>';
 	}
 
+	/**
+	 * Render robots txt section.
+	 *
+	 * @return void
+	 */
 	public static function render_robots_txt_section() {
 		$url = home_url( '/robots.txt' );
 
@@ -529,6 +663,11 @@ class MMSAR_Admin {
 		echo '</p>';
 	}
 
+	/**
+	 * Render robots txt preview field.
+	 *
+	 * @return void
+	 */
 	public static function render_robots_txt_preview_field() {
 		$public  = (int) get_option( 'blog_public' );
 		$content = "User-agent: *\n";
@@ -542,12 +681,22 @@ class MMSAR_Admin {
 		echo '<p class="description">' . esc_html__( 'Read-only preview of the robots.txt output. Some plugins only modify robots.txt on front-end requests, so the served file can differ slightly from this preview — open /robots.txt above to see the real thing.', 'make-my-site-agent-ready' ) . '</p>';
 	}
 
+	/**
+	 * Render robots txt field.
+	 *
+	 * @return void
+	 */
 	public static function render_robots_txt_field() {
 		$value = get_option( 'mmsar_robots_txt_extra', '' );
 		echo '<textarea name="mmsar_robots_txt_extra" rows="5" class="large-text code" placeholder="# e.g. User-agent: Bingbot&#10;# Allow: /">' . esc_textarea( $value ) . '</textarea>';
 		echo '<p class="description">' . esc_html__( 'Optional extra directives appended to robots.txt. Leave empty if you only need the default AI crawler rules.', 'make-my-site-agent-ready' ) . '</p>';
 	}
 
+	/**
+	 * Render security txt section.
+	 *
+	 * @return void
+	 */
 	public static function render_security_txt_section() {
 		if ( ! mmsar_feature_enabled( 'security_txt' ) ) {
 			echo '<p class="description"><em>';
@@ -565,6 +714,11 @@ class MMSAR_Admin {
 		echo '</p>';
 	}
 
+	/**
+	 * Render security txt contact field.
+	 *
+	 * @return void
+	 */
 	public static function render_security_txt_contact_field() {
 		$value = get_option( 'mmsar_security_txt_contact', '' );
 		echo '<input type="text" name="mmsar_security_txt_contact" value="' . esc_attr( $value ) . '" class="regular-text" placeholder="/contact">';
@@ -601,6 +755,11 @@ class MMSAR_Admin {
 		}
 	}
 
+	/**
+	 * Render security txt field.
+	 *
+	 * @return void
+	 */
 	public static function render_security_txt_field() {
 		$value       = get_option( 'mmsar_security_txt', '' );
 		$placeholder = MMSAR_Endpoints::default_security_txt();
@@ -608,6 +767,11 @@ class MMSAR_Admin {
 		echo '<p class="description">' . esc_html__( 'Optional. Leave this empty unless you need extra fields such as Encryption, Acknowledgments or Policy — the Security Contact above is enough for most sites. Anything entered here replaces the generated file entirely, including the Contact line, so it must contain both Contact and Expires.', 'make-my-site-agent-ready' ) . '</p>';
 	}
 
+	/**
+	 * Render page.
+	 *
+	 * @return void
+	 */
 	public static function render_page() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
@@ -643,26 +807,3 @@ class MMSAR_Admin {
 	}
 }
 
-add_action( 'admin_post_mmsar_regenerate', 'mmsar_handle_regenerate' );
-function mmsar_handle_regenerate() {
-	if ( ! current_user_can( 'manage_options' ) ) {
-		wp_die( esc_html__( 'Unauthorized.', 'make-my-site-agent-ready' ) );
-	}
-	if ( ! isset( $_POST['mmsar_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['mmsar_nonce'] ) ), 'mmsar_regenerate' ) ) {
-		wp_die( esc_html__( 'Security check failed.', 'make-my-site-agent-ready' ) );
-	}
-
-	mmsar_bulk_generate();
-	delete_transient( 'llmmd_llms_txt' );
-	delete_transient( 'mmsar_llms_full_txt' );
-
-	wp_safe_redirect( add_query_arg(
-		[
-			'page'             => 'make-my-site-agent-ready',
-			'mmsar_regenerated' => '1',
-			'_wpnonce'         => wp_create_nonce( 'mmsar_regenerate' ),
-		],
-		admin_url( 'options-general.php' )
-	) );
-	exit;
-}

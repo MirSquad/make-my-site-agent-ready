@@ -1,12 +1,27 @@
 <?php
+/**
+ * Make My Site Agent-Ready — converter component.
+ *
+ * @package Make_My_Site_Agent_Ready
+ */
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
 use League\HTMLToMarkdown\HtmlConverter;
 
+/**
+ * MMSAR Converter handler.
+ */
 class MMSAR_Converter {
 
+	/**
+	 * Convert post.
+	 *
+	 * @param mixed $post_id Post id.
+	 * @return mixed Result.
+	 */
 	public static function convert_post( $post_id ) {
 		$post = get_post( $post_id );
 		if ( ! $post || 'publish' !== $post->post_status ) {
@@ -20,11 +35,17 @@ class MMSAR_Converter {
 		return $frontmatter . $markdown;
 	}
 
+	/**
+	 * Build frontmatter.
+	 *
+	 * @param mixed $post Post.
+	 * @return mixed Result.
+	 */
 	private static function build_frontmatter( $post ) {
 		$author = get_userdata( $post->post_author );
 		$url    = get_permalink( $post );
 
-		$lines   = [];
+		$lines   = array();
 		$lines[] = '---';
 		$lines[] = 'title: "' . self::escape_yaml( get_the_title( $post ) ) . '"';
 		$lines[] = 'date: ' . get_the_date( 'Y-m-d', $post );
@@ -32,7 +53,7 @@ class MMSAR_Converter {
 		if ( $author ) {
 			$lines[] = 'author: "' . self::escape_yaml( $author->display_name ) . '"';
 		}
-		$lines[] = 'url: "' . $url . '"';
+		$lines[]       = 'url: "' . $url . '"';
 		$front_page_id = (int) get_option( 'page_on_front' );
 		if ( $front_page_id && $front_page_id === $post->ID ) {
 			$lines[] = 'markdown_url: "' . rtrim( $url, '/' ) . '/index.md"';
@@ -68,6 +89,12 @@ class MMSAR_Converter {
 		return implode( "\n", $lines );
 	}
 
+	/**
+	 * Escape yaml.
+	 *
+	 * @param mixed $str Str.
+	 * @return mixed Result.
+	 */
 	private static function escape_yaml( $str ) {
 		$str = html_entity_decode( $str, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 		$str = str_replace( '\\', '\\\\', $str );
@@ -75,6 +102,12 @@ class MMSAR_Converter {
 		return $str;
 	}
 
+	/**
+	 * Get rendered content.
+	 *
+	 * @param mixed $post Post.
+	 * @return mixed Result.
+	 */
 	private static function get_rendered_content( $post ) {
 		$content = $post->post_content;
 
@@ -95,6 +128,13 @@ class MMSAR_Converter {
 		return $content;
 	}
 
+	/**
+	 * Extract root.
+	 *
+	 * @param mixed $html Html.
+	 * @param mixed $selector Selector.
+	 * @return mixed Result.
+	 */
 	private static function extract_root( $html, $selector ) {
 		if ( empty( trim( $html ) ) ) {
 			return $html;
@@ -123,6 +163,12 @@ class MMSAR_Converter {
 		return $html;
 	}
 
+	/**
+	 * Css to xpath.
+	 *
+	 * @param mixed $selector Selector.
+	 * @return mixed Result.
+	 */
 	private static function css_to_xpath( $selector ) {
 		$selector = trim( $selector );
 		if ( strpos( $selector, '#' ) === 0 ) {
@@ -137,6 +183,12 @@ class MMSAR_Converter {
 		return '//' . $tag;
 	}
 
+	/**
+	 * Html to markdown.
+	 *
+	 * @param mixed $html Html.
+	 * @return mixed Result.
+	 */
 	private static function html_to_markdown( $html ) {
 		if ( empty( trim( $html ) ) ) {
 			return '';
@@ -148,13 +200,15 @@ class MMSAR_Converter {
 		$html = preg_replace( '/<nav\b[^>]*>.*?<\/nav>/si', '', $html );
 
 		try {
-			$converter = new HtmlConverter( [
-				'strip_tags'              => true,
-				'remove_nodes'            => 'script style iframe',
-				'hard_break'              => false,
-				'header_style'            => 'atx',
-				'strip_placeholder_links' => true,
-			] );
+			$converter = new HtmlConverter(
+				array(
+					'strip_tags'              => true,
+					'remove_nodes'            => 'script style iframe',
+					'hard_break'              => false,
+					'header_style'            => 'atx',
+					'strip_placeholder_links' => true,
+				)
+			);
 
 			$markdown = $converter->convert( $html );
 		} catch ( \Exception $e ) {

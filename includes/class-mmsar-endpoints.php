@@ -1,19 +1,35 @@
 <?php
 /**
  * Additional virtual endpoints: /llms-full.txt and /.well-known/security.txt
+ *
+ * @package Make_My_Site_Agent_Ready
  */
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * MMSAR Endpoints handler.
+ */
 class MMSAR_Endpoints {
 
+	/**
+	 * Init.
+	 *
+	 * @return void
+	 */
 	public static function init() {
-		add_action( 'init', [ __CLASS__, 'add_rewrite_rules' ] );
-		add_filter( 'query_vars', [ __CLASS__, 'add_query_vars' ] );
-		add_action( 'template_redirect', [ __CLASS__, 'serve' ] );
+		add_action( 'init', array( __CLASS__, 'add_rewrite_rules' ) );
+		add_filter( 'query_vars', array( __CLASS__, 'add_query_vars' ) );
+		add_action( 'template_redirect', array( __CLASS__, 'serve' ) );
 	}
 
+	/**
+	 * Add rewrite rules.
+	 *
+	 * @return void
+	 */
 	public static function add_rewrite_rules() {
 		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {
 			add_rewrite_rule(
@@ -49,6 +65,12 @@ class MMSAR_Endpoints {
 		}
 	}
 
+	/**
+	 * Add query vars.
+	 *
+	 * @param mixed $vars Vars.
+	 * @return mixed Result.
+	 */
 	public static function add_query_vars( $vars ) {
 		$vars[] = 'mmsar_llms_full_txt';
 		$vars[] = 'mmsar_security_txt';
@@ -56,6 +78,11 @@ class MMSAR_Endpoints {
 		return $vars;
 	}
 
+	/**
+	 * Serve.
+	 *
+	 * @return void
+	 */
 	public static function serve() {
 		if ( get_query_var( 'mmsar_llms_full_txt' ) ) {
 			self::serve_llms_full_txt();
@@ -72,6 +99,11 @@ class MMSAR_Endpoints {
 	// /llms-full.txt
 	// -------------------------------------------------------------------------
 
+	/**
+	 * Serve llms full txt.
+	 *
+	 * @return void
+	 */
 	private static function serve_llms_full_txt() {
 		$content = get_transient( 'mmsar_llms_full_txt' );
 		if ( false === $content ) {
@@ -87,19 +119,26 @@ class MMSAR_Endpoints {
 		exit;
 	}
 
+	/**
+	 * Generate llms full txt.
+	 *
+	 * @return mixed Result.
+	 */
 	private static function generate_llms_full_txt() {
 		$post_types = mmsar_get_enabled_post_types();
-		$posts      = get_posts( [
-			'post_type'      => $post_types,
-			'post_status'    => 'publish',
-			'posts_per_page' => -1,
-			'orderby'        => 'date',
-			'order'          => 'DESC',
-		] );
+		$posts      = get_posts(
+			array(
+				'post_type'      => $post_types,
+				'post_status'    => 'publish',
+				'posts_per_page' => -1,
+				'orderby'        => 'date',
+				'order'          => 'DESC',
+			)
+		);
 
 		$site_name = html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 
-		$lines   = [];
+		$lines   = array();
 		$lines[] = '# ' . $site_name . ' — Full Content';
 		$lines[] = '';
 		$lines[] = '> Source: ' . home_url( '/llms-full.txt' );
@@ -145,6 +184,11 @@ class MMSAR_Endpoints {
 	// /.well-known/security.txt
 	// -------------------------------------------------------------------------
 
+	/**
+	 * Serve security txt.
+	 *
+	 * @return void
+	 */
 	private static function serve_security_txt() {
 		$content = get_option( 'mmsar_security_txt', '' );
 		if ( empty( trim( $content ) ) ) {
@@ -167,6 +211,9 @@ class MMSAR_Endpoints {
 	 *   https://example.com/contact  ->  used as-is
 	 *   /contact  or  contact        ->  https://thissite.com/contact
 	 *   security@example.com         ->  mailto:security@example.com
+	 *
+	 * @param string $contact The raw contact value the user entered.
+	 * @return string A security.txt-valid Contact URI.
 	 */
 	public static function normalize_contact( $contact ) {
 		$contact = trim( (string) $contact );
@@ -185,6 +232,11 @@ class MMSAR_Endpoints {
 		return home_url( '/' . ltrim( $contact, '/' ) );
 	}
 
+	/**
+	 * Default security txt.
+	 *
+	 * @return mixed Result.
+	 */
 	public static function default_security_txt() {
 		$contact = self::normalize_contact( get_option( 'mmsar_security_txt_contact', '' ) );
 		if ( '' === $contact ) {
@@ -200,45 +252,68 @@ class MMSAR_Endpoints {
 	// /.well-known/api-catalog — RFC 9727, served as a Linkset (RFC 9264)
 	// -------------------------------------------------------------------------
 
+	/**
+	 * Serve api catalog.
+	 *
+	 * @return void
+	 */
 	private static function serve_api_catalog() {
 		// This document exists to tell an agent what it can fetch, so it must only list resources
 		// that are actually being served — a catalog entry pointing at a switched-off endpoint
 		// sends agents to a 404 and makes the whole catalog less trustworthy.
-		$entry = [ 'anchor' => home_url( '/' ) ];
+		$entry = array( 'anchor' => home_url( '/' ) );
 
 		// The `type` here must match the Content-Type each endpoint actually sends: llms.txt and
 		// llms-full.txt are both served as text/plain (see serve_llms_full_txt / serve_llms_txt),
 		// so advertising text/markdown would misrepresent them to an agent reading the catalog.
-		$describedby = [];
+		$describedby = array();
 		if ( mmsar_feature_enabled( 'llms_txt' ) ) {
-			$describedby[] = [ 'href' => home_url( '/llms.txt' ), 'type' => 'text/plain' ];
+			$describedby[] = array(
+				'href' => home_url( '/llms.txt' ),
+				'type' => 'text/plain',
+			);
 		}
 		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {
-			$describedby[] = [ 'href' => home_url( '/llms-full.txt' ), 'type' => 'text/plain' ];
+			$describedby[] = array(
+				'href' => home_url( '/llms-full.txt' ),
+				'type' => 'text/plain',
+			);
 		}
 		if ( mmsar_feature_enabled( 'security_txt' ) ) {
-			$describedby[] = [ 'href' => home_url( '/.well-known/security.txt' ), 'type' => 'text/plain' ];
+			$describedby[] = array(
+				'href' => home_url( '/.well-known/security.txt' ),
+				'type' => 'text/plain',
+			);
 		}
 		if ( $describedby ) {
 			$entry['describedby'] = $describedby;
 		}
 
 		if ( mmsar_feature_enabled( 'agent_skills' ) ) {
-			$entry['service-desc'] = [
-				[ 'href' => home_url( '/.well-known/agent-skills/index.json' ), 'type' => 'application/json' ],
-			];
+			$entry['service-desc'] = array(
+				array(
+					'href' => home_url( '/.well-known/agent-skills/index.json' ),
+					'type' => 'application/json',
+				),
+			);
 		}
 
-		$items = [];
+		$items = array();
 		// Same detection the robots.txt Sitemap directive uses, rather than assuming Yoast's filename.
 		$sitemap_url = mmsar_get_sitemap_url();
 		if ( $sitemap_url ) {
-			$items[] = [ 'href' => $sitemap_url, 'type' => 'application/xml' ];
+			$items[] = array(
+				'href' => $sitemap_url,
+				'type' => 'application/xml',
+			);
 		}
-		$items[] = [ 'href' => home_url( '/feed/' ), 'type' => 'application/rss+xml' ];
+		$items[]       = array(
+			'href' => home_url( '/feed/' ),
+			'type' => 'application/rss+xml',
+		);
 		$entry['item'] = $items;
 
-		$linkset = [ 'linkset' => [ $entry ] ];
+		$linkset = array( 'linkset' => array( $entry ) );
 
 		header( 'Content-Type: application/linkset+json; charset=UTF-8' );
 		header( 'Access-Control-Allow-Origin: *' );

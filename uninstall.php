@@ -1,4 +1,10 @@
 <?php
+/**
+ * Uninstall handler for Make My Site Agent-Ready.
+ *
+ * @package Make_My_Site_Agent_Ready
+ */
+
 if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	exit;
 }
@@ -17,4 +23,5 @@ delete_transient( 'mmsar_llms_full_txt' );
 delete_transient( 'mmsar_flush_needed' );
 
 global $wpdb;
-$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_llmmd_content' ) );
+// Uninstall cleanup: remove all cached markdown post meta. No caching applies to a one-time delete.
+$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_llmmd_content' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching

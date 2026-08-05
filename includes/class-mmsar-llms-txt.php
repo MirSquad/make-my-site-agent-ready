@@ -1,16 +1,35 @@
 <?php
+/**
+ * Make My Site Agent-Ready — llms txt component.
+ *
+ * @package Make_My_Site_Agent_Ready
+ */
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * MMSAR LLMs Txt handler.
+ */
 class MMSAR_LLMs_Txt {
 
+	/**
+	 * Init.
+	 *
+	 * @return void
+	 */
 	public static function init() {
-		add_action( 'init', [ __CLASS__, 'add_rewrite_rules' ] );
-		add_filter( 'query_vars', [ __CLASS__, 'add_query_vars' ] );
-		add_action( 'template_redirect', [ __CLASS__, 'serve_llms_txt' ] );
+		add_action( 'init', array( __CLASS__, 'add_rewrite_rules' ) );
+		add_filter( 'query_vars', array( __CLASS__, 'add_query_vars' ) );
+		add_action( 'template_redirect', array( __CLASS__, 'serve_llms_txt' ) );
 	}
 
+	/**
+	 * Add rewrite rules.
+	 *
+	 * @return void
+	 */
 	public static function add_rewrite_rules() {
 		add_rewrite_rule(
 			'^llms\.txt$',
@@ -19,11 +38,22 @@ class MMSAR_LLMs_Txt {
 		);
 	}
 
+	/**
+	 * Add query vars.
+	 *
+	 * @param mixed $vars Vars.
+	 * @return mixed Result.
+	 */
 	public static function add_query_vars( $vars ) {
 		$vars[] = 'llmmd_llms_txt';
 		return $vars;
 	}
 
+	/**
+	 * Serve llms txt.
+	 *
+	 * @return void
+	 */
 	public static function serve_llms_txt() {
 		if ( ! get_query_var( 'llmmd_llms_txt' ) ) {
 			return;
@@ -43,12 +73,17 @@ class MMSAR_LLMs_Txt {
 		exit;
 	}
 
+	/**
+	 * Generate.
+	 *
+	 * @return mixed Result.
+	 */
 	public static function generate() {
 		$site_name   = self::decode( get_bloginfo( 'name' ) );
 		$description = self::decode( get_bloginfo( 'description' ) );
 		$home_url    = home_url( '/' );
 
-		$lines   = [];
+		$lines   = array();
 		$lines[] = '# ' . $site_name;
 		if ( ! empty( $description ) ) {
 			$lines[] = '';
@@ -77,7 +112,7 @@ class MMSAR_LLMs_Txt {
 		}
 
 		if ( ! empty( $posts ) ) {
-			$categories = get_categories( [ 'hide_empty' => true ] );
+			$categories = get_categories( array( 'hide_empty' => true ) );
 
 			if ( ! empty( $categories ) ) {
 				foreach ( $categories as $cat ) {
@@ -113,6 +148,12 @@ class MMSAR_LLMs_Txt {
 		return implode( "\n", $lines ) . "\n";
 	}
 
+	/**
+	 * Format entry.
+	 *
+	 * @param mixed $post Post.
+	 * @return mixed Result.
+	 */
 	private static function format_entry( $post ) {
 		$front_page_id = (int) get_option( 'page_on_front' );
 		if ( $front_page_id && $front_page_id === $post->ID ) {
@@ -120,7 +161,7 @@ class MMSAR_LLMs_Txt {
 		} else {
 			$url = rtrim( get_permalink( $post->ID ), '/' ) . '.md';
 		}
-		$title   = str_replace( [ '[', ']' ], [ '\[', '\]' ], self::decode( get_the_title( $post ) ) );
+		$title   = str_replace( array( '[', ']' ), array( '\[', '\]' ), self::decode( get_the_title( $post ) ) );
 		$excerpt = self::decode( get_the_excerpt( $post ) );
 		$line    = '- [' . $title . '](' . $url . ')';
 		if ( ! empty( $excerpt ) ) {
@@ -129,36 +170,59 @@ class MMSAR_LLMs_Txt {
 		return $line;
 	}
 
+	/**
+	 * Decode.
+	 *
+	 * @param mixed $str Str.
+	 * @return mixed Result.
+	 */
 	private static function decode( $str ) {
 		return html_entity_decode( $str, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 	}
 
+	/**
+	 * Get posts by type.
+	 *
+	 * @param mixed $type Type.
+	 * @param mixed $enabled_types Enabled types.
+	 * @return mixed Result.
+	 */
 	private static function get_posts_by_type( $type, $enabled_types ) {
 		if ( ! in_array( $type, $enabled_types, true ) ) {
-			return [];
+			return array();
 		}
-		return get_posts( [
-			'post_type'      => $type,
-			'post_status'    => 'publish',
-			'has_password'   => false,
-			'posts_per_page' => -1,
-			'orderby'        => 'title',
-			'order'          => 'ASC',
-		] );
-	}
-
-	private static function get_custom_type_posts( $enabled_types ) {
-		$custom = array_diff( $enabled_types, [ 'post', 'page' ] );
-		$result = [];
-		foreach ( $custom as $type ) {
-			$posts = get_posts( [
+		return get_posts(
+			array(
 				'post_type'      => $type,
 				'post_status'    => 'publish',
 				'has_password'   => false,
 				'posts_per_page' => -1,
 				'orderby'        => 'title',
 				'order'          => 'ASC',
-			] );
+			)
+		);
+	}
+
+	/**
+	 * Get custom type posts.
+	 *
+	 * @param mixed $enabled_types Enabled types.
+	 * @return mixed Result.
+	 */
+	private static function get_custom_type_posts( $enabled_types ) {
+		$custom = array_diff( $enabled_types, array( 'post', 'page' ) );
+		$result = array();
+		foreach ( $custom as $type ) {
+			$posts = get_posts(
+				array(
+					'post_type'      => $type,
+					'post_status'    => 'publish',
+					'has_password'   => false,
+					'posts_per_page' => -1,
+					'orderby'        => 'title',
+					'order'          => 'ASC',
+				)
+			);
 			if ( ! empty( $posts ) ) {
 				$result[ $type ] = $posts;
 			}
@@ -166,18 +230,27 @@ class MMSAR_LLMs_Txt {
 		return $result;
 	}
 
+	/**
+	 * Get posts in category.
+	 *
+	 * @param mixed $cat_id Cat id.
+	 * @param mixed $enabled_types Enabled types.
+	 * @return mixed Result.
+	 */
 	private static function get_posts_in_category( $cat_id, $enabled_types ) {
 		if ( ! in_array( 'post', $enabled_types, true ) ) {
-			return [];
+			return array();
 		}
-		return get_posts( [
-			'post_type'      => 'post',
-			'post_status'    => 'publish',
-			'has_password'   => false,
-			'cat'            => $cat_id,
-			'posts_per_page' => -1,
-			'orderby'        => 'date',
-			'order'          => 'DESC',
-		] );
+		return get_posts(
+			array(
+				'post_type'      => 'post',
+				'post_status'    => 'publish',
+				'has_password'   => false,
+				'cat'            => $cat_id,
+				'posts_per_page' => -1,
+				'orderby'        => 'date',
+				'order'          => 'DESC',
+			)
+		);
 	}
 }

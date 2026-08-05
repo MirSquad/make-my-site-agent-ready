@@ -1,17 +1,36 @@
 <?php
+/**
+ * Make My Site Agent-Ready — server component.
+ *
+ * @package Make_My_Site_Agent_Ready
+ */
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * MMSAR Server handler.
+ */
 class MMSAR_Server {
 
+	/**
+	 * Init.
+	 *
+	 * @return void
+	 */
 	public static function init() {
-		add_action( 'init', [ __CLASS__, 'add_rewrite_rules' ] );
-		add_filter( 'query_vars', [ __CLASS__, 'add_query_vars' ] );
-		add_action( 'template_redirect', [ __CLASS__, 'serve_markdown' ] );
-		add_filter( 'redirect_canonical', [ __CLASS__, 'prevent_redirect' ], 10, 2 );
+		add_action( 'init', array( __CLASS__, 'add_rewrite_rules' ) );
+		add_filter( 'query_vars', array( __CLASS__, 'add_query_vars' ) );
+		add_action( 'template_redirect', array( __CLASS__, 'serve_markdown' ) );
+		add_filter( 'redirect_canonical', array( __CLASS__, 'prevent_redirect' ) );
 	}
 
+	/**
+	 * Add rewrite rules.
+	 *
+	 * @return void
+	 */
 	public static function add_rewrite_rules() {
 		// Negative lookahead excludes /.well-known/ paths — this broad catch-all is for post/page
 		// .md URLs only, and would otherwise also match (and shadow) well-known endpoints like
@@ -23,19 +42,36 @@ class MMSAR_Server {
 		);
 	}
 
+	/**
+	 * Add query vars.
+	 *
+	 * @param mixed $vars Vars.
+	 * @return mixed Result.
+	 */
 	public static function add_query_vars( $vars ) {
 		$vars[] = 'llmmd_path';
 		$vars[] = 'llmmd_serve';
 		return $vars;
 	}
 
-	public static function prevent_redirect( $redirect_url, $requested_url ) {
+	/**
+	 * Prevent WordPress's canonical redirect from interfering with markdown-serving requests.
+	 *
+	 * @param string $redirect_url The redirect URL WordPress proposes.
+	 * @return string|false The redirect URL, or false to cancel the redirect for our requests.
+	 */
+	public static function prevent_redirect( $redirect_url ) {
 		if ( get_query_var( 'llmmd_serve' ) ) {
 			return false;
 		}
 		return $redirect_url;
 	}
 
+	/**
+	 * Serve markdown.
+	 *
+	 * @return void
+	 */
 	public static function serve_markdown() {
 		if ( ! get_query_var( 'llmmd_serve' ) ) {
 			return;
@@ -103,6 +139,11 @@ class MMSAR_Server {
 		exit;
 	}
 
+	/**
+	 * Resolve post id.
+	 *
+	 * @return mixed Result.
+	 */
 	private static function resolve_post_id() {
 		$path = get_query_var( 'llmmd_path' );
 		if ( empty( $path ) ) {

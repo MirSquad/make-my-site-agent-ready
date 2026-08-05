@@ -2,21 +2,37 @@
 /**
  * Agent Skills discovery: /.well-known/agent-skills/index.json and one bundled SKILL.md
  * Spec: https://github.com/cloudflare/agent-skills-discovery-rfc (draft v0.2.0)
+ *
+ * @package Make_My_Site_Agent_Ready
  */
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * MMSAR Agent Skills handler.
+ */
 class MMSAR_Agent_Skills {
 
 	const SKILL_NAME = 'fetch-content-as-markdown';
 
+	/**
+	 * Init.
+	 *
+	 * @return void
+	 */
 	public static function init() {
-		add_action( 'init', [ __CLASS__, 'add_rewrite_rules' ] );
-		add_filter( 'query_vars', [ __CLASS__, 'add_query_vars' ] );
-		add_action( 'template_redirect', [ __CLASS__, 'serve' ] );
+		add_action( 'init', array( __CLASS__, 'add_rewrite_rules' ) );
+		add_filter( 'query_vars', array( __CLASS__, 'add_query_vars' ) );
+		add_action( 'template_redirect', array( __CLASS__, 'serve' ) );
 	}
 
+	/**
+	 * Add rewrite rules.
+	 *
+	 * @return void
+	 */
 	public static function add_rewrite_rules() {
 		add_rewrite_rule(
 			'^\.well-known/agent-skills/index\.json$',
@@ -30,12 +46,23 @@ class MMSAR_Agent_Skills {
 		);
 	}
 
+	/**
+	 * Add query vars.
+	 *
+	 * @param mixed $vars Vars.
+	 * @return mixed Result.
+	 */
 	public static function add_query_vars( $vars ) {
 		$vars[] = 'mmsar_agent_skills_index';
 		$vars[] = 'mmsar_agent_skill_md';
 		return $vars;
 	}
 
+	/**
+	 * Serve.
+	 *
+	 * @return void
+	 */
 	public static function serve() {
 		if ( get_query_var( 'mmsar_agent_skills_index' ) ) {
 			self::serve_index();
@@ -55,29 +82,35 @@ class MMSAR_Agent_Skills {
 	 * toggle. A section is only listed when the endpoint it describes is actually being served —
 	 * advertising an endpoint an agent then hits as a 404 makes the whole catalog less trustworthy.
 	 *
+	 * @param string $home Home URL used to build absolute endpoint links.
 	 * @return array List of [ 'key' => feature key, 'line' => markdown bullet, 'note' => extra note ].
 	 */
 	private static function endpoint_sections( $home ) {
-		$sections = [];
+		$sections = array();
 		if ( mmsar_feature_enabled( 'llms_txt' ) ) {
-			$sections[] = [
+			$sections[] = array(
 				'line' => "- `{$home}llms.txt` — a curated index of the site's most important pages, one line per entry with a short description. Start here for an overview.",
-			];
+			);
 		}
 		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {
-			$sections[] = [
+			$sections[] = array(
 				'line' => "- `{$home}llms-full.txt` — every published post and page concatenated into one file, each entry separated by `---` with its title and URL. Use this for a single-fetch full-corpus read.",
-			];
+			);
 		}
 		if ( mmsar_feature_enabled( 'markdown' ) ) {
-			$sections[] = [
+			$sections[] = array(
 				'line' => "- `{$home}<slug>.md` — the raw Markdown for any single published post or page, mirroring its canonical URL with a `.md` suffix (e.g. `{$home}about.md` for the About page). Use this instead of fetching and parsing the HTML version of a specific page.",
 				'note' => "- The homepage's `.md` mirror is at `{$home}index.md`.",
-			];
+			);
 		}
 		return $sections;
 	}
 
+	/**
+	 * Skill md content.
+	 *
+	 * @return mixed Result.
+	 */
 	private static function skill_md_content() {
 		$site_name  = html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 		$home       = home_url( '/' );
@@ -109,12 +142,20 @@ This site exposes its content in Markdown alongside every normal HTML page, gene
 MD;
 	}
 
+	/**
+	 * Skill digest.
+	 *
+	 * @return mixed Result.
+	 */
 	private static function skill_digest() {
 		return 'sha256:' . hash( 'sha256', self::skill_md_content() );
 	}
 
 	/**
 	 * Joins a list into "a", "a and b", or "a, b, and c" for the one-line index description.
+	 *
+	 * @param string[] $items Items to join.
+	 * @return string Human-readable joined string.
 	 */
 	private static function human_join( $items ) {
 		$items = array_values( $items );
@@ -133,12 +174,17 @@ MD;
 	// /.well-known/agent-skills/index.json
 	// -------------------------------------------------------------------------
 
+	/**
+	 * Serve index.
+	 *
+	 * @return void
+	 */
 	private static function serve_index() {
 		$skill_url = home_url( '/.well-known/agent-skills/' . self::SKILL_NAME . '/SKILL.md' );
 
 		// Only name the endpoints that are actually enabled, so the one-line description never points
 		// an agent at something the SKILL.md itself no longer documents.
-		$enabled = [];
+		$enabled = array();
 		if ( mmsar_feature_enabled( 'llms_txt' ) ) {
 			$enabled[] = 'llms.txt';
 		}
@@ -152,18 +198,18 @@ MD;
 			? 'Fetch this site\'s content as Markdown via ' . self::human_join( $enabled ) . '.'
 			: 'Fetch this site\'s content as Markdown.';
 
-		$index = [
+		$index = array(
 			'$schema' => 'https://schemas.agentskills.io/discovery/0.2.0/schema.json',
-			'skills'  => [
-				[
+			'skills'  => array(
+				array(
 					'name'        => self::SKILL_NAME,
 					'type'        => 'skill-md',
 					'description' => $description,
 					'url'         => $skill_url,
 					'digest'      => self::skill_digest(),
-				],
-			],
-		];
+				),
+			),
+		);
 
 		header( 'Content-Type: application/json; charset=UTF-8' );
 		header( 'Access-Control-Allow-Origin: *' );
@@ -176,6 +222,11 @@ MD;
 	// /.well-known/agent-skills/fetch-content-as-markdown/SKILL.md
 	// -------------------------------------------------------------------------
 
+	/**
+	 * Serve skill md.
+	 *
+	 * @return void
+	 */
 	private static function serve_skill_md() {
 		header( 'Content-Type: text/markdown; charset=UTF-8' );
 		header( 'Access-Control-Allow-Origin: *' );
