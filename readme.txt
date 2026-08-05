@@ -80,17 +80,17 @@ Remaining posts are still converted on demand the first time their `.md`, `/llms
 
 == Changelog ==
 
-= 1.8.2 =
+= 1.8.2 - 2026-08-05 =
 * Hardening: the request URI used for canonical-redirect checks is now sanitized and parsed with wp_parse_url(); admin output is explicitly escaped. Code documentation and WordPress coding-standards cleanup. No changes to behavior.
 
-= 1.8.1 =
+= 1.8.1 - 2026-07-22 =
 * Fix (packaging): The zip you get by downloading the repo from GitHub ("Download ZIP" or a release's "Source code" asset) now contains only the plugin files, not the `.github/` CI config or dev docs. No functional change to the plugin.
 
-= 1.8.0 =
+= 1.8.0 - 2026-07-21 =
 * Change: The settings page is easier to navigate. The old "Quick Links" list at the bottom is gone — each feature toggle at the top now carries its own "View" link to the live file (shown only while the feature is on), so everything is in one place.
 * Change: Feature toggles that have more to configure (Markdown URLs, robots.txt, security.txt) now show a "Configure below ↓" link that jumps to the matching settings section, so options like the robots.txt Additional Rules box and the security.txt Contact field are easier to find.
 
-= 1.7.1 =
+= 1.7.1 - 2026-07-21 =
 * Security: Password-protected posts could appear in `/llms-full.txt` and `/llms.txt` (the per-page `.md` endpoint already blocked them). Both aggregate feeds now exclude password-protected content, and password-protecting a post clears its cached markdown.
 * Security: The security.txt Contact line now only accepts safe URI schemes (https, http, mailto, tel), so an unsafe scheme like `javascript:` can no longer be published.
 * Fix: Content Signals sanitization no longer falls back to "yes" for `ai-train` — a malformed value now correctly defaults to "no", matching the setting's own default.
@@ -99,7 +99,7 @@ Remaining posts are still converted on demand the first time their `.md`, `/llms
 * Change: On sites set to discourage search engines (blog_public = 0), the plugin no longer adds `Allow: /` AI-crawler rules to robots.txt, respecting the admin's intent.
 * Change: api-catalog advertises llms.txt / llms-full.txt as `text/plain`, matching the headers they actually send.
 
-= 1.7.0 =
+= 1.7.0 - 2026-07-20 =
 * New: Every feature can now be switched off individually under Settings > Agent-Ready — markdown URLs, llms.txt, llms-full.txt, robots.txt rules, security.txt, api-catalog, and Agent Skills discovery. All default to on, so updating changes nothing until you choose otherwise.
 * New: Turning off robots.txt handling stops the plugin both appending AI crawler rules and routing /robots.txt through WordPress, so a hand-maintained or SEO-plugin-managed robots.txt is left completely alone. The settings screen explains what you give up before you switch it off.
 * New: security.txt now has a dedicated Security Contact field that accepts a full URL, a path like /contact, or an email address, and formats it into a valid RFC 9116 Contact line. With nothing set it falls back to the site admin email instead of guessing a /contact URL that may not exist.
@@ -107,34 +107,34 @@ Remaining posts are still converted on demand the first time their `.md`, `/llms
 * Fix: `/.well-known/api-catalog` now lists only the endpoints that are actually enabled, instead of always advertising llms.txt, llms-full.txt, security.txt and the Agent Skills index regardless of the feature toggles.
 * Fix: The Sitemap directive is added at the very end of the robots.txt filter chain, so it correctly stands down when an SEO plugin has already added one. Yoast hooks that filter at priority 99999, so the previous check ran too early to see its output and emitted a duplicate Sitemap line.
 
-= 1.6.1 =
+= 1.6.1 - 2026-07-15 =
 * Fix: the Yoast schema injection added in 1.6.0 never actually registered — it was gated behind `defined('WPSEO_VERSION')` at plugin-load time, but plugin load order isn't guaranteed, so that check could run before Yoast's own file had loaded and defined the constant. The filters are now registered unconditionally; they simply never fire if Yoast isn't active.
 
-= 1.6.0 =
+= 1.6.0 - 2026-07-14 =
 * Change: JSON-LD structured data now merges into Yoast SEO's own `Article`/`WebPage` schema piece (via Yoast's `wpseo_schema_article`/`wpseo_schema_webpage` filters) when Yoast is active and produces schema for the page, instead of always adding a separate block. Falls back to the standalone block from 1.5.0 when Yoast isn't active or doesn't cover the page.
 * Change: the admin conflict notice and settings description updated to reflect the new Yoast-merge behavior; RankMath (or other non-Yoast SEO plugins) still gets the standalone-block warning.
 
-= 1.5.0 =
+= 1.5.0 - 2026-07-14 =
 * New: Optional JSON-LD structured data (`Article`/`WebPage`) on enabled posts/pages, pointing at the markdown alternate. Off by default; new admin notice warns if enabled alongside an active SEO plugin (Yoast/RankMath).
 * Prompted by the plugin's own agent-readiness gap tracking
 
-= 1.4.3 =
+= 1.4.3 - 2026-07-06 =
 * New: Content Signals — `Content-Signal: search=..., ai-input=..., ai-train=...` (contentsignals.org / IETF AI Preferences draft) added under each AI crawler's group in robots.txt. Configurable in Settings > Agent-Ready (three yes/no toggles); defaults to search=yes, ai-input=yes, ai-train=no.
 * Prompted by isitagentready.com flagging the absence of Content Signals in robots.txt
 
-= 1.4.2 =
+= 1.4.2 - 2026-07-06 =
 * New: Link response headers (RFC 8288) on every front-end response — points agents to api-catalog and the Agent Skills index; singular posts/pages add a third pointing to their markdown alternate
 * Prompted by isitagentready.com flagging the homepage's missing Link headers
 
-= 1.4.1 =
+= 1.4.1 - 2026-07-06 =
 * Fix: the broad `.md` catch-all rewrite rule (used for post/page markdown URLs) also matched `/.well-known/agent-skills/*/SKILL.md`, causing the Agent Skills file to 404. The catch-all now excludes `/.well-known/` paths.
 
-= 1.4.0 =
+= 1.4.0 - 2026-07-06 =
 * New: /.well-known/api-catalog endpoint (RFC 9727) indexing llms.txt, llms-full.txt, security.txt, the Agent Skills index, sitemap, and feed
 * New: Agent Skills discovery — /.well-known/agent-skills/index.json plus a bundled skill teaching agents how to use this plugin's markdown endpoints
 * Improvement: version bumps now auto-flush rewrite rules so new endpoints work without a manual Permalinks resave
 
-= 1.3.0 =
+= 1.3.0 - 2026-06-15 =
 * Rename: plugin renamed to "Make My Site Agent-Ready" with slug make-my-site-agent-ready
 * New: /llms-full.txt endpoint serving full site content concatenated as markdown
 * New: /.well-known/security.txt endpoint with configurable content in Settings
@@ -143,49 +143,49 @@ Remaining posts are still converted on demand the first time their `.md`, `/llms
 * Abilities: regenerate-files ability now always registered; marked destructive so AI confirms before running
 * Abilities: removed write abilities opt-in checkbox — destructive annotation handles confirmation
 
-= 1.2.2 =
+= 1.2.2 - 2026-06-01 =
 * Fix: $input = null for PHP 8 compatibility in abilities execute callbacks
 
-= 1.2.1 =
+= 1.2.1 - 2026-06-01 =
 * Fix: meta.mcp.public key in abilities registration
 
-= 1.2.0 =
+= 1.2.0 - 2026-06-01 =
 * Add: WordPress Abilities API integration (get-settings, regenerate-files)
 
-= 1.1.2 =
+= 1.1.2 - 2026-05-24 =
 * Fix: YAML frontmatter url and markdown_url fields now quoted for spec compliance
 * Fix: Markdown link titles in llms.txt now escape ] characters to prevent broken links
 * Fix: Version check moved into plugins_loaded hook
 * Add: llmmd_bulk_generate_limit filter for large-site memory control
 * Internal docs removed from repository
 
-= 1.1.1 =
+= 1.1.1 - 2026-05-20 =
 * Replace "View details" plugin row link with "Visit plugin site"
 
-= 1.1.0 =
+= 1.1.0 - 2026-05-20 =
 * Security: sanitize CSS selectors to prevent XPath injection
 * Security: add X-Content-Type-Options: nosniff header on .md responses
 * Security: use $wpdb->prepare() in uninstall.php
 * Fix YAML escape order (backslashes before quotes)
 * Auto-clear llms.txt transient on plugin version upgrade
 
-= 1.0.5 =
+= 1.0.5 - 2026-05-20 =
 * Decode HTML entities in llms.txt
 
-= 1.0.4 =
+= 1.0.4 - 2026-05-20 =
 * Decode HTML entities in YAML frontmatter
 
-= 1.0.3 =
+= 1.0.3 - 2026-05-20 =
 * Fix front page /index.md
 * Add alternate link tag to homepage
 
-= 1.0.2 =
+= 1.0.2 - 2026-05-20 =
 * Fix front page /index.md returning 404
 
-= 1.0.1 =
+= 1.0.1 - 2026-05-20 =
 * Add post excerpts/descriptions to llms.txt entries
 
-= 1.0.0 =
+= 1.0.0 - 2026-05-20 =
 * Initial release.
 
 == Upgrade Notice ==

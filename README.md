@@ -134,6 +134,10 @@ Content-Signal: search=yes, ai-input=yes, ai-train=no
 
 **Structured data merges into Yoast's schema instead of duplicating it.** Yoast's Schema Framework already declares type, url, title, and dates on every page — the only new fact this plugin adds is the `encoding`/`MediaObject` pointer to the markdown alternate. When Yoast produces a schema piece for the current page, that one field is injected directly into Yoast's own `Article`/`WebPage` piece via Yoast's documented `wpseo_schema_article`/`wpseo_schema_webpage` filters — registered unconditionally (not gated on detecting Yoast at plugin-load time, since load order across plugins isn't guaranteed; if Yoast isn't active, these filters simply never fire). Falls back to a standalone block, with no `@id`, whenever the injection doesn't apply — no Yoast, Yoast's schema output disabled, or a content type (e.g. a WooCommerce product) Yoast gives its own distinct schema to.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
 ## Requirements
 
 - WordPress 6.0+

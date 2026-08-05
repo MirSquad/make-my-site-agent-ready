@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.2 — 2026-08-05
+
+### Security
+
+- Hardening: the request URI used for canonical-redirect checks is now sanitized and parsed with `wp_parse_url()`; admin output is explicitly escaped. Code documentation and WordPress coding-standards cleanup. No changes to behavior.
+
 ## 1.8.1 — 2026-07-22
 
 ### Packaging
