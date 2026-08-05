@@ -1,0 +1,55 @@
+name: Security audit
+
+# Prevents security regressions (escaping, nonces/caps, input sanitization,
+# $wpdb->prepare, safe redirects, SAST) from being introduced or re-introduced.
+# Runs on every push to main and PR, and is called by release.yml as a gate so a
+# failing audit blocks the release. Mirrors the local ./audit-plugin.sh security stages.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Install PHPCS + WordPress Coding Standards
+        run: |
+          composer global require --no-interaction --no-progress \
+            "squizlabs/php_codesniffer:^3.13" \
+            "wp-coding-standards/wpcs:^3.2" \
+            "dealerdirect/phpcodesniffer-composer-installer:^1.0"
+          echo "$(composer global config bin-dir --absolute)" >> "$GITHUB_PATH"
+
+      - name: PHPCS — WordPress security rules
+        run: |
+          phpcs -p --colors --standard=WordPress \
+            --sniffs=WordPress.Security.EscapeOutput,WordPress.Security.NonceVerification,WordPress.Security.ValidatedSanitizedInput,WordPress.Security.SafeRedirect,WordPress.DB.PreparedSQL \
+            --extensions=php \
+            --ignore='*/vendor/*,*/vendor-prefixed/*,*/node_modules/*,*/archive/*,*/llm-markdown/*' \
+            .
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Semgrep SAST (PHP security)
+        run: |
+          pip install --quiet semgrep
+          semgrep scan --config p/php --error --quiet --metrics off \
+            --exclude vendor --exclude vendor-prefixed --exclude node_modules --exclude archive --exclude llm-markdown \
+            .

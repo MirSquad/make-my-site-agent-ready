@@ -9,7 +9,11 @@ permissions:
   contents: write
 
 jobs:
+  audit:
+    uses: ./.github/workflows/security-audit.yml
+
   release:
+    needs: audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
