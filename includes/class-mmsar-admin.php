@@ -933,6 +933,9 @@ class MMSAR_Admin {
 		esc_html_e( 'It appends rather than replaces, so it works alongside any robots.txt that WordPress generates on the fly — including one produced by an SEO plugin such as Yoast, Rank Math or All in One SEO. Their rules stay exactly as they are, and the AI crawler rules are added underneath.', 'make-my-site-agent-ready' );
 		echo '</p>';
 		echo '<p>';
+		esc_html_e( 'If any rule in the finished robots.txt disallows a path one of your published endpoints lives on — several SEO plugins disallow /wp-json/ by default — an Allow line for that individual endpoint is added above the rule blocking it, in the same user-agent group. Crawlers apply the more specific rule, so the endpoint you advertise in the api-catalog, llms.txt and Agent Skills index stays reachable while the rest of that path stays disallowed. Endpoints nothing blocks are left alone.', 'make-my-site-agent-ready' );
+		echo '</p>';
+		echo '<p>';
 		esc_html_e( 'It also tries to route /robots.txt through WordPress so these rules still apply on sites that have a physical robots.txt file in the site root. Whether that succeeds depends on your server: it works on Apache, but nginx and most CDNs serve an existing file directly without ever asking WordPress, so the physical file keeps winning. If you maintain that file deliberately, switch this feature off in Features above and the plugin will stop trying.', 'make-my-site-agent-ready' );
 		echo '</p>';
 	}

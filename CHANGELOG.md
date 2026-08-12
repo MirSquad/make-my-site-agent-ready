@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.11.0 — 2026-08-12
+
+### Fixed
+
+- An endpoint published in `/.well-known/api-catalog`, `llms.txt` and the Agent Skills index is no longer contradicted by a `Disallow` rule in the same site's `robots.txt`. The plugin now adds an `Allow:` line for the individual endpoint path, in the same user-agent group as the rule that blocks it and above that rule, so a compliant parser applies the more specific rule: the advertised action stays reachable while the broader path stays disallowed. The case that prompted this was `/wp-json/`, which Yoast SEO disallows by default via its `deny_wp_json_crawling` option — a site could describe a REST endpoint in three documents an agent reads before acting, and tell that same agent to stay off the path in a fourth.
+- The paths come from `MMSAR_Registry::get_endpoints()`, the same list that feeds those three documents, so endpoints managed on the settings page and endpoints registered in code both get the treatment and no path is named twice in two places to drift apart.
+- The rules being overridden are written by other plugins, so the check runs against the assembled document at `PHP_INT_MAX` — the same reason the `Sitemap:` directive is added there. Nothing is emitted for an endpoint that no rule blocks, one already allowed by an equally specific rule, one on another host, or the site root; on `blog_public = 0` the file is left untouched, matching the existing AI-crawler-rule behaviour.
+
 ## 1.10.1 — 2026-08-12
 
 ### Fixed

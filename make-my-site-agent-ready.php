@@ -3,7 +3,7 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.10.1
+ * Version:           1.11.0
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.10.1' );
+define( 'MMSAR_VERSION', '1.11.0' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -35,6 +35,7 @@ require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-server.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-llms-txt.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-endpoints.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-skills.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-robots-allow.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-structured-data.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-admin.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/abilities.php';
@@ -418,6 +419,11 @@ if ( mmsar_feature_enabled( 'robots_txt' ) ) {
 	// hooks robots_txt at 99999 and Rank Math similarly late, so any check made at a normal
 	// priority runs too early to see their output and would emit a second Sitemap line.
 	add_filter( 'robots_txt', 'mmsar_robots_txt_sitemap', PHP_INT_MAX );
+	// Endpoints this site advertises to agents are useless if robots.txt also tells them to stay
+	// off the path those endpoints live on — /wp-json/ is disallowed by default by more than one
+	// SEO plugin. Runs at PHP_INT_MAX for the same reason the Sitemap directive does: the rules it
+	// has to override are written later in the chain than any normal priority can see.
+	add_filter( 'robots_txt', array( 'MMSAR_Robots_Allow', 'filter' ), PHP_INT_MAX, 2 );
 }
 /**
  * Mmsar robots txt.
