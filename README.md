@@ -124,6 +124,67 @@ Content-Signal: search=yes, ai-input=yes, ai-train=no
 }
 ```
 
+## Registering your own endpoints
+
+If you've made something else on the site agent-ready — a contact form, a booking API, a product feed — it needs to be listed somewhere agents actually look. Describe it once and this plugin publishes it in `/.well-known/api-catalog`, `/llms.txt`, and the Agent Skills index together, each in that document's own idiom.
+
+```php
+add_action( 'init', function () {
+    if ( ! function_exists( 'mmsar_register_endpoint' ) ) {
+        return; // Plugin not installed — your integration keeps working regardless.
+    }
+
+    mmsar_register_endpoint( array(
+        'title'       => 'Contact form',
+        'href'        => rest_url( 'my-plugin/v1/contact' ),
+        'description' => 'Send the site owner a message. Requires name, email and message.',
+        'type'        => 'application/json',
+        'methods'     => array( 'POST' ),
+        'auth'        => 'none',
+        'rel'         => 'service-desc',
+    ) );
+} );
+```
+
+The equivalent via filter, for code that would rather not make a direct call:
+
+```php
+add_filter( 'mmsar_registered_endpoints', function ( $endpoints ) {
+    $endpoints[] = array( /* same array as above */ );
+    return $endpoints;
+} );
+```
+
+### Descriptor keys
+
+| Key | Required | Meaning |
+| --- | --- | --- |
+| `title` | yes | Short human-readable name. |
+| `href` | yes | Absolute `http(s)` URL of the endpoint. |
+| `id` | no | Stable slug, used as the Agent Skills entry name. Derived from the title when omitted. |
+| `description` | no | One sentence on what it does and when to use it. |
+| `type` | recommended | The media type the endpoint really returns, e.g. `application/json`. Omitted when unstated — never guessed. |
+| `rel` | no | api-catalog link relation: `item` (default), `service-desc`, `service-doc`, `describedby`, `status`, `terms-of-service`, `license`. |
+| `methods` | no | HTTP methods accepted, e.g. `array( 'POST' )`. |
+| `auth` | no | How to authenticate, e.g. `'none'` or `'X-Api-Key header'`. |
+| `surfaces` | no | Which documents to appear in: `api_catalog`, `llms_txt`, `agent_skills`. Defaults to all three. |
+| `skill_url` | no | Absolute URL of a `SKILL.md` you serve yourself. Gets its own entry in the Agent Skills index instead of a bullet inside this plugin's skill. |
+| `skill_digest` | no | `sha256:<hex>` digest of that `SKILL.md`, so agents can cache it and detect changes. |
+
+Register on `init` or earlier — the documents are built on `template_redirect`. A surface only publishes your endpoint while its own feature toggle is on; the settings page shows each registered endpoint and where it is actually being listed.
+
+### What gets validated
+
+These documents are read by agents that act on them, so a malformed entry is dropped rather than published. Registrations are rejected outright without a title and an `http(s)` URL; unrecognised link relations fall back to `item`, unrecognised HTTP methods and media types are discarded rather than passed through. Text is flattened to a single line and markdown link/code syntax is escaped, so a value containing a newline or `[link](…)` can't forge a heading, a list item, or a link in `llms.txt` or `SKILL.md` — worth knowing if your descriptions come from user input.
+
+### Whole-document filters
+
+For the rare change the registry can't express:
+
+- `mmsar_api_catalog_linkset` — the complete RFC 9264 linkset, as a PHP array.
+- `mmsar_llms_txt_content` — the complete `llms.txt` body. Runs on every request, after the cached content is assembled.
+- `mmsar_agent_skills_index` — the complete Agent Skills discovery index, as a PHP array.
+
 ## Architecture notes
 
 **The `.md` catch-all rewrite rule excludes `/.well-known/`.** The broad rule that serves post/page `.md` URLs (`^(.+)\.md/?$`) would otherwise also match paths like `/.well-known/agent-skills/*/SKILL.md`, and — depending on rewrite rule registration order — can shadow more specific rules for those paths. The catch-all is scoped with a negative lookahead (`^(?!\.well-known/)(.+)\.md/?$`) so this can't happen regardless of what else the plugin (or a future version of it) adds under `/.well-known/`.
@@ -162,3 +223,8 @@ This plugin exposes abilities for the [WordPress Abilities API](https://develope
 |---|---|---|
 | `make-my-site-agent-ready/get-settings` | Always on | Returns the enabled post types and content root CSS selector |
 | `make-my-site-agent-ready/regenerate-files` | Always on (destructive) | Regenerates cached markdown for all published content and clears the llms.txt and llms-full.txt caches. AI tools will ask for confirmation before running. |
+| `make-my-site-agent-ready/list-endpoints` | Always on | Lists every endpoint being published, flagging which are managed on the settings page and which a plugin or theme registered in code, plus where each is actually appearing right now. |
+| `make-my-site-agent-ready/set-endpoint` | Always on | Adds an endpoint, or updates one already managed on the settings page. Send only the fields you want changed when updating. |
+| `make-my-site-agent-ready/delete-endpoint` | Always on (destructive) | Removes an endpoint managed on the settings page. |
+
+Endpoints a plugin or theme registered in code are read-only to `set-endpoint` and `delete-endpoint`: both return a `409` explaining that the owning plugin or theme has to be edited instead. Reporting success for a write that changed nothing would be worse than refusing it.

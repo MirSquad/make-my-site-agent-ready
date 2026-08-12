@@ -3,7 +3,7 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.8.2
+ * Version:           1.10.1
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -20,12 +20,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.8.2' );
+define( 'MMSAR_VERSION', '1.10.1' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
 
 require_once MMSAR_PLUGIN_DIR . 'vendor/autoload.php';
+// Loaded before the components that publish documents — every one of them reads the registry, and
+// it must exist even when the features that use it are switched off, so integrations can register
+// against it at any point in the load order.
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-registry.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-converter.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-server.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-llms-txt.php';
@@ -82,6 +86,69 @@ function mmsar_feature_enabled( $key ) {
 		return $defaults[ $key ];
 	}
 	return '1' === $features[ $key ];
+}
+
+/**
+ * Registers an endpoint for inclusion in this site's agent-facing documents — the api-catalog,
+ * llms.txt, and the Agent Skills index.
+ *
+ * Convenience wrapper around MMSAR_Registry::register() for integrations that would rather make a
+ * direct call than add a filter. Call on `init` or earlier, and guard it with function_exists() so
+ * the integration keeps working when this plugin is not installed:
+ *
+ *     add_action( 'init', function () {
+ *         if ( ! function_exists( 'mmsar_register_endpoint' ) ) {
+ *             return;
+ *         }
+ *         mmsar_register_endpoint( array(
+ *             'id'          => 'contact-form',
+ *             'title'       => 'Contact form',
+ *             'href'        => rest_url( 'my-plugin/v1/contact' ),
+ *             'description' => 'Send the site owner a message. Requires name, email and message.',
+ *             'type'        => 'application/json',
+ *             'methods'     => array( 'POST' ),
+ *             'auth'        => 'none',
+ *         ) );
+ *     } );
+ *
+ * @param array $endpoint Endpoint descriptor. See the mmsar_registered_endpoints filter docblock
+ *                        in class-mmsar-registry.php for every accepted key.
+ * @return bool True if the descriptor is valid and was stored, false if it was rejected.
+ */
+function mmsar_register_endpoint( $endpoint ) {
+	return MMSAR_Registry::register( $endpoint );
+}
+
+/**
+ * Sends the cache policy for the documents this plugin serves.
+ *
+ * These files describe live configuration — toggling a feature or adding an endpoint changes them
+ * — so they must not inherit a host's or CDN's default cache lifetime. Left unstated, that default
+ * can be very long: one real deploy had `s-maxage=604800` applied to /.well-known/api-catalog,
+ * pinning a week-old copy at the edge while the origin served the correct one.
+ *
+ * Five minutes keeps a CDN useful for crawler traffic while letting a settings change appear
+ * promptly. `s-maxage` is set alongside `max-age` because it is the shared-cache value a CDN reads,
+ * and it is the one that was overridden.
+ *
+ * @return void
+ */
+function mmsar_send_cache_headers() {
+	/**
+	 * Filters how long, in seconds, the plugin's published documents may be cached.
+	 *
+	 * Return 0 to opt out of caching entirely, at the cost of every agent and crawler request
+	 * reaching the origin.
+	 *
+	 * @param int $max_age Cache lifetime in seconds. Default 300.
+	 */
+	$max_age = (int) apply_filters( 'mmsar_document_max_age', 300 );
+
+	if ( $max_age > 0 ) {
+		header( sprintf( 'Cache-Control: public, max-age=%1$d, s-maxage=%1$d', $max_age ) );
+		return;
+	}
+	header( 'Cache-Control: no-cache, max-age=0' );
 }
 
 /**

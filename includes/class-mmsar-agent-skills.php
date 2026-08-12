@@ -120,6 +120,8 @@ class MMSAR_Agent_Skills {
 		$bullets    = implode( "\n", array_column( $sections, 'line' ) );
 		$notes      = array_filter( array_column( $sections, 'note' ) );
 		$notes_body = $notes ? "\n" . implode( "\n", $notes ) : '';
+		// Endpoints other plugins registered that an agent can call, rather than just read.
+		$actions = MMSAR_Registry::skill_md_section();
 
 		return <<<MD
 ---
@@ -139,6 +141,7 @@ This site exposes its content in Markdown alongside every normal HTML page, gene
 
 - These are plain GET requests, no authentication, served as `text/plain` or `text/markdown`.
 - Content reflects what's currently published — there's no separate draft/staging feed.{$notes_body}
+{$actions}
 MD;
 	}
 
@@ -198,6 +201,12 @@ MD;
 			? 'Fetch this site\'s content as Markdown via ' . self::human_join( $enabled ) . '.'
 			: 'Fetch this site\'s content as Markdown.';
 
+		// This skill's SKILL.md also documents any callable endpoints other plugins registered, so
+		// say so here — the one-line description is what an agent uses to decide whether to fetch it.
+		if ( MMSAR_Registry::skill_md_section() ) {
+			$description .= ' Also documents endpoints on this site that agents can call.';
+		}
+
 		$index = array(
 			'$schema' => 'https://schemas.agentskills.io/discovery/0.2.0/schema.json',
 			'skills'  => array(
@@ -211,6 +220,26 @@ MD;
 			),
 		);
 
+		// Integrations that serve a SKILL.md of their own are listed as separate skills rather than
+		// folded into ours, so each one keeps its own URL and digest.
+		foreach ( MMSAR_Registry::agent_skill_entries() as $entry ) {
+			$index['skills'][] = $entry;
+		}
+
+		/**
+		 * Filters the complete Agent Skills index document before it is served.
+		 *
+		 * The escape hatch for skill types the endpoint registry does not model. Most integrations
+		 * want the mmsar_registered_endpoints filter instead.
+		 *
+		 * @param array $index The Agent Skills discovery index, as a PHP array.
+		 */
+		$filtered = apply_filters( 'mmsar_agent_skills_index', $index );
+		if ( is_array( $filtered ) ) {
+			$index = $filtered;
+		}
+
+		mmsar_send_cache_headers();
 		header( 'Content-Type: application/json; charset=UTF-8' );
 		header( 'Access-Control-Allow-Origin: *' );
 		status_header( 200 );
@@ -228,6 +257,7 @@ MD;
 	 * @return void
 	 */
 	private static function serve_skill_md() {
+		mmsar_send_cache_headers();
 		header( 'Content-Type: text/markdown; charset=UTF-8' );
 		header( 'Access-Control-Allow-Origin: *' );
 		status_header( 200 );

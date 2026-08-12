@@ -65,6 +65,24 @@ class MMSAR_LLMs_Txt {
 			set_transient( 'llmmd_llms_txt', $content, DAY_IN_SECONDS );
 		}
 
+		// Registered endpoints are appended after the cache, not baked into it. The cached body is
+		// invalidated by content changes, but the registry lives in code — an endpoint registered by
+		// a plugin activated today would otherwise not appear until the day-long transient expired.
+		$content .= MMSAR_Registry::llms_txt_section();
+
+		/**
+		 * Filters the complete llms.txt body before it is served.
+		 *
+		 * Runs on every request, after the cached content is assembled, so a filter here is free to
+		 * depend on things the cache knows nothing about. Most integrations want the
+		 * mmsar_registered_endpoints filter instead, which lists an endpoint here and in the
+		 * api-catalog and Agent Skills index at the same time.
+		 *
+		 * @param string $content The llms.txt body.
+		 */
+		$content = (string) apply_filters( 'mmsar_llms_txt_content', $content );
+
+		mmsar_send_cache_headers();
 		header( 'Content-Type: text/plain; charset=UTF-8' );
 		status_header( 200 );
 

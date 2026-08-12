@@ -229,6 +229,243 @@ class MMSAR_Admin {
 	}
 
 	/**
+	 * Human labels for the three documents an endpoint can be listed in.
+	 */
+	public static function get_surface_labels() {
+		return array(
+			'api_catalog'  => __( 'api-catalog', 'make-my-site-agent-ready' ),
+			'llms_txt'     => __( 'llms.txt', 'make-my-site-agent-ready' ),
+			'agent_skills' => __( 'Agent Skills', 'make-my-site-agent-ready' ),
+		);
+	}
+
+	/**
+	 * Intro copy for the endpoints section.
+	 *
+	 * @return void
+	 */
+	public static function render_endpoints_section() {
+		echo '<p>';
+		esc_html_e( 'Made something on your site usable by agents — a contact form, a booking API, a product feed? Add it here and it gets listed in the documents agents actually read, so they can find it without being told it exists.', 'make-my-site-agent-ready' );
+		echo '</p>';
+		echo '<p class="description">';
+		esc_html_e( 'Fill in the empty row at the bottom to add one. Save, and a fresh empty row appears.', 'make-my-site-agent-ready' );
+		echo '</p>';
+	}
+
+	/**
+	 * The editable endpoint rows, plus one blank row for adding another.
+	 *
+	 * No JavaScript repeater: one blank row per save is a little slower than cloning rows in the
+	 * browser, but it works identically with JS disabled or broken, and there is no hidden state to
+	 * get out of step with what is actually stored.
+	 *
+	 * @return void
+	 */
+	public static function render_endpoints_field() {
+		$rows = MMSAR_Registry::get_stored();
+		// The blank row is just one more row with an index past the end of the stored ones.
+		$rows[] = array();
+
+		foreach ( $rows as $index => $row ) {
+			self::render_endpoint_row( $index, $row, count( $rows ) - 1 === $index );
+		}
+	}
+
+	/**
+	 * One endpoint row.
+	 *
+	 * @param int   $index    Row index, used in the field names.
+	 * @param array $row      Stored row values.
+	 * @param bool  $is_blank Whether this is the trailing "add another" row.
+	 * @return void
+	 */
+	private static function render_endpoint_row( $index, $row, $is_blank ) {
+		$name  = 'mmsar_endpoints[' . $index . ']';
+		$get   = function ( $key ) use ( $row ) {
+			return isset( $row[ $key ] ) ? $row[ $key ] : '';
+		};
+		$id    = $get( 'id' );
+		$title = $get( 'title' );
+
+		echo '<fieldset style="border:1px solid #c3c4c7;border-radius:4px;padding:12px 16px;margin-bottom:16px;max-width:760px;background:#fff;">';
+		echo '<legend style="padding:0 6px;font-weight:600;">';
+		echo $is_blank
+			? esc_html__( 'Add an endpoint', 'make-my-site-agent-ready' )
+			: esc_html( '' !== $title ? $title : __( 'Untitled endpoint', 'make-my-site-agent-ready' ) );
+		echo '</legend>';
+
+		if ( '' !== $id ) {
+			echo '<input type="hidden" name="' . esc_attr( $name ) . '[id]" value="' . esc_attr( $id ) . '">';
+		}
+
+		// Name + URL: the only two required fields, so they lead.
+		echo '<p style="margin:0 0 10px;"><label style="display:block;font-weight:600;">' . esc_html__( 'Name', 'make-my-site-agent-ready' ) . '</label>';
+		echo '<input type="text" class="regular-text" name="' . esc_attr( $name ) . '[title]" value="' . esc_attr( $title ) . '" placeholder="' . esc_attr__( 'Contact form', 'make-my-site-agent-ready' ) . '"></p>';
+
+		echo '<p style="margin:0 0 10px;"><label style="display:block;font-weight:600;">' . esc_html__( 'URL', 'make-my-site-agent-ready' ) . '</label>';
+		echo '<input type="text" class="large-text code" name="' . esc_attr( $name ) . '[href]" value="' . esc_attr( $get( 'href' ) ) . '" placeholder="' . esc_attr( home_url( '/wp-json/my-plugin/v1/thing' ) ) . '"></p>';
+
+		echo '<p style="margin:0 0 10px;"><label style="display:block;font-weight:600;">' . esc_html__( 'Description', 'make-my-site-agent-ready' ) . '</label>';
+		echo '<input type="text" class="large-text" name="' . esc_attr( $name ) . '[description]" value="' . esc_attr( $get( 'description' ) ) . '" placeholder="' . esc_attr__( 'What it does, and anything a caller must know before using it.', 'make-my-site-agent-ready' ) . '">';
+		echo '<span class="description">' . esc_html__( 'One sentence. This is what an agent reads to decide whether to use it — mention any required first step.', 'make-my-site-agent-ready' ) . '</span></p>';
+
+		// Where it gets listed.
+		$surfaces = isset( $row['surfaces'] ) && is_array( $row['surfaces'] ) ? $row['surfaces'] : array_keys( self::get_surface_labels() );
+		echo '<p style="margin:0 0 10px;"><span style="display:block;font-weight:600;">' . esc_html__( 'List it in', 'make-my-site-agent-ready' ) . '</span>';
+		foreach ( self::get_surface_labels() as $key => $label ) {
+			$checked  = in_array( $key, $surfaces, true ) ? ' checked' : '';
+			$disabled = mmsar_feature_enabled( $key ) ? '' : ' disabled';
+			echo '<label style="margin-right:16px;"><input type="checkbox" name="' . esc_attr( $name ) . '[surfaces][]" value="' . esc_attr( $key ) . '"' . esc_attr( $checked ) . esc_attr( $disabled ) . '> ' . esc_html( $label );
+			if ( ! mmsar_feature_enabled( $key ) ) {
+				echo ' <span class="description">' . esc_html__( '(switched off above)', 'make-my-site-agent-ready' ) . '</span>';
+			}
+			echo '</label>';
+		}
+		echo '</p>';
+
+		// The optional technical details, folded away so the common case stays short.
+		echo '<details style="margin:0 0 10px;"><summary style="cursor:pointer;">' . esc_html__( 'Technical details (optional)', 'make-my-site-agent-ready' ) . '</summary>';
+		echo '<div style="padding-top:10px;">';
+
+		echo '<p style="margin:0 0 8px;"><label style="display:block;">' . esc_html__( 'Methods', 'make-my-site-agent-ready' ) . '</label>';
+		echo '<input type="text" class="regular-text" name="' . esc_attr( $name ) . '[methods]" value="' . esc_attr( is_array( $get( 'methods' ) ) ? implode( ', ', $get( 'methods' ) ) : '' ) . '" placeholder="GET, POST"></p>';
+
+		echo '<p style="margin:0 0 8px;"><label style="display:block;">' . esc_html__( 'Content type', 'make-my-site-agent-ready' ) . '</label>';
+		echo '<input type="text" class="regular-text code" name="' . esc_attr( $name ) . '[type]" value="' . esc_attr( $get( 'type' ) ) . '" placeholder="application/json">';
+		echo '<span class="description">' . esc_html__( 'Only if you know it. A wrong type is worse than none, so this is left out when empty.', 'make-my-site-agent-ready' ) . '</span></p>';
+
+		echo '<p style="margin:0 0 8px;"><label style="display:block;">' . esc_html__( 'Authentication', 'make-my-site-agent-ready' ) . '</label>';
+		echo '<input type="text" class="regular-text" name="' . esc_attr( $name ) . '[auth]" value="' . esc_attr( $get( 'auth' ) ) . '" placeholder="' . esc_attr__( 'none', 'make-my-site-agent-ready' ) . '"></p>';
+
+		$rel = '' !== $get( 'rel' ) ? $get( 'rel' ) : 'item';
+		echo '<p style="margin:0;"><label style="display:block;">' . esc_html__( 'Link relation (api-catalog)', 'make-my-site-agent-ready' ) . '</label>';
+		echo '<select name="' . esc_attr( $name ) . '[rel]">';
+		foreach ( MMSAR_Registry::RELATIONS as $relation ) {
+			echo '<option value="' . esc_attr( $relation ) . '"' . selected( $rel, $relation, false ) . '>' . esc_html( $relation ) . '</option>';
+		}
+		echo '</select>';
+		echo '<span class="description" style="display:block;">' . esc_html__( 'Leave as "item" unless you know you want otherwise. Use "service-desc" when fetching the URL returns a description of the API itself.', 'make-my-site-agent-ready' ) . '</span></p>';
+
+		echo '</div></details>';
+
+		if ( ! $is_blank ) {
+			// Say plainly whether this row is live, and why not when it isn't. A row that silently
+			// fails to publish is the worst outcome — the owner believes it is out there.
+			self::render_endpoint_status( $row );
+			echo '<p style="margin:10px 0 0;"><label style="color:#b32d2e;"><input type="checkbox" name="' . esc_attr( $name ) . '[remove]" value="1"> ' . esc_html__( 'Remove this endpoint when I save', 'make-my-site-agent-ready' ) . '</label></p>';
+		}
+
+		echo '</fieldset>';
+	}
+
+	/**
+	 * The "where is this actually published" line under a stored row.
+	 *
+	 * @param array $row Stored row values.
+	 * @return void
+	 */
+	private static function render_endpoint_status( $row ) {
+		$labels    = self::get_surface_labels();
+		$published = MMSAR_Registry::normalize( $row );
+
+		if ( null === $published ) {
+			echo '<p style="margin:10px 0 0;color:#b32d2e;">';
+			echo esc_html__( 'Not being published. It needs a name, a URL starting with http:// or https://, and at least one document ticked above.', 'make-my-site-agent-ready' );
+			echo '</p>';
+			return;
+		}
+
+		// A ticked document still publishes nothing while its feature is switched off further up
+		// the page, so report what is actually happening rather than what was asked for.
+		$live = array();
+		foreach ( $published['surfaces'] as $surface ) {
+			if ( mmsar_feature_enabled( $surface ) && isset( $labels[ $surface ] ) ) {
+				$live[] = $labels[ $surface ];
+			}
+		}
+
+		echo '<p style="margin:10px 0 0;">';
+		if ( $live ) {
+			printf(
+				/* translators: %s: comma-separated list of document names */
+				esc_html__( 'Currently listed in: %s', 'make-my-site-agent-ready' ),
+				'<strong>' . esc_html( implode( ', ', $live ) ) . '</strong>'
+			);
+		} else {
+			echo '<span style="color:#b32d2e;">' . esc_html__( 'Not being published — every document it is ticked for is switched off above.', 'make-my-site-agent-ready' ) . '</span>';
+		}
+		echo '</p>';
+	}
+
+	/**
+	 * The published endpoints that did not come from this settings page — i.e. those a plugin or the
+	 * theme registered in code. Identified by elimination against the stored ids, so an integration
+	 * cannot claim to be owner-managed just by picking a matching id.
+	 *
+	 * @return array[] Normalised endpoints registered in code.
+	 */
+	public static function get_code_registered_endpoints() {
+		$stored_ids = wp_list_pluck( MMSAR_Registry::get_stored(), 'id' );
+
+		$from_code = array();
+		foreach ( MMSAR_Registry::get_endpoints() as $endpoint ) {
+			if ( ! in_array( $endpoint['id'], $stored_ids, true ) ) {
+				$from_code[] = $endpoint;
+			}
+		}
+		return $from_code;
+	}
+
+	/**
+	 * Lists endpoints added by other plugins or the theme in code, so the site owner can see what is
+	 * being published on their behalf. Read-only: this page does not own those entries.
+	 *
+	 * @return void
+	 */
+	public static function render_code_endpoints_section() {
+		$labels    = self::get_surface_labels();
+		$from_code = self::get_code_registered_endpoints();
+		if ( empty( $from_code ) ) {
+			return;
+		}
+
+		echo '<p>';
+		esc_html_e( 'A plugin or your theme registered these in code. They are shown here so you know what is being published — to change or remove one, edit the plugin or theme that added it.', 'make-my-site-agent-ready' );
+		echo '</p>';
+
+		echo '<table class="widefat striped" style="max-width:900px;"><thead><tr>';
+		echo '<th>' . esc_html__( 'Endpoint', 'make-my-site-agent-ready' ) . '</th>';
+		echo '<th>' . esc_html__( 'URL', 'make-my-site-agent-ready' ) . '</th>';
+		echo '<th>' . esc_html__( 'Listed in', 'make-my-site-agent-ready' ) . '</th>';
+		echo '</tr></thead><tbody>';
+
+		foreach ( $from_code as $endpoint ) {
+			$listed = array();
+			foreach ( $endpoint['surfaces'] as $surface ) {
+				if ( mmsar_feature_enabled( $surface ) && isset( $labels[ $surface ] ) ) {
+					$listed[] = $labels[ $surface ];
+				}
+			}
+
+			echo '<tr>';
+			echo '<td><strong>' . esc_html( $endpoint['title'] ) . '</strong>';
+			if ( '' !== $endpoint['description'] ) {
+				echo '<br><span class="description">' . esc_html( $endpoint['description'] ) . '</span>';
+			}
+			echo '</td>';
+			echo '<td><code>' . esc_html( $endpoint['href'] ) . '</code></td>';
+			echo '<td>' . ( $listed
+				? esc_html( implode( ', ', $listed ) )
+				: '<span class="description">' . esc_html__( 'Nowhere — every document it asked for is switched off', 'make-my-site-agent-ready' ) . '</span>' );
+			echo '</td>';
+			echo '</tr>';
+		}
+
+		echo '</tbody></table>';
+	}
+
+	/**
 	 * Register settings.
 	 *
 	 * @return void
@@ -257,6 +494,43 @@ class MMSAR_Admin {
 			'make-my-site-agent-ready',
 			'mmsar_features'
 		);
+
+		// Your endpoints: the editable list, stored as an option.
+		register_setting(
+			'mmsar_settings_group',
+			MMSAR_Registry::OPTION,
+			array(
+				'sanitize_callback' => array( 'MMSAR_Registry', 'sanitize_rows' ),
+				'default'           => array(),
+			)
+		);
+
+		add_settings_section(
+			'mmsar_endpoints',
+			__( 'Your Endpoints', 'make-my-site-agent-ready' ),
+			array( __CLASS__, 'render_endpoints_section' ),
+			'make-my-site-agent-ready'
+		);
+
+		add_settings_field(
+			'mmsar_endpoints_rows',
+			__( 'Endpoints', 'make-my-site-agent-ready' ),
+			array( __CLASS__, 'render_endpoints_field' ),
+			'make-my-site-agent-ready',
+			'mmsar_endpoints'
+		);
+
+		// Endpoints registered in code by another plugin or the theme. Read-only, and registered at
+		// all only when there are some — add_settings_section prints its heading regardless of what
+		// the callback does, so an empty section would leave a bare title on most sites.
+		if ( self::get_code_registered_endpoints() ) {
+			add_settings_section(
+				'mmsar_code_endpoints',
+				__( 'Added by Plugins', 'make-my-site-agent-ready' ),
+				array( __CLASS__, 'render_code_endpoints_section' ),
+				'make-my-site-agent-ready'
+			);
+		}
 
 		// Main settings (option key kept as llmmd_settings for data continuity).
 		register_setting(

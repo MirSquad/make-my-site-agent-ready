@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.8.2
+Stable tag: 1.10.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -78,7 +78,45 @@ On activation and when you regenerate manually, the plugin converts every publis
 
 Remaining posts are still converted on demand the first time their `.md`, `/llms.txt`, or `/llms-full.txt` is requested, and the result is cached from then on.
 
+= I made something else on my site agent-ready. Can I get it listed in these files? =
+
+Yes, and you don't need to write any code. Go to **Settings > Agent-Ready > Your Endpoints**, fill in the empty row with a name and the URL, tick which documents it should appear in, and save. It's then listed in `/.well-known/api-catalog`, `/llms.txt`, and the Agent Skills index together.
+
+The description field is what an agent reads to decide whether to use your endpoint, so say what it does and mention anything a caller must do first. Each saved endpoint tells you underneath exactly which documents it's currently appearing in — or why it isn't.
+
+= Can a plugin register an endpoint in code instead? =
+
+Yes. Plugin and theme authors can register one so it works on any site without the owner filling in a form:
+
+`add_action( 'init', function() {`
+`    if ( ! function_exists( 'mmsar_register_endpoint' ) ) { return; }`
+`    mmsar_register_endpoint( array(`
+`        'title'       => 'Contact form',`
+`        'href'        => rest_url( 'my-plugin/v1/contact' ),`
+`        'description' => 'Send the site owner a message.',`
+`        'type'        => 'application/json',`
+`        'methods'     => array( 'POST' ),`
+`        'auth'        => 'none',`
+`    ) );`
+`} );`
+
+Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
+
 == Changelog ==
+
+= 1.10.1 - 2026-08-12 =
+* Fix: The files this plugin publishes now send their own `Cache-Control` header (`public, max-age=300, s-maxage=300`) instead of inheriting whatever the host or CDN applies by default. On a CDN-fronted site that default can be very long — one real install had `/.well-known/api-catalog` pinned at the edge for a week, so an endpoint added on the settings page was published correctly by the site but not visible to anyone fetching it. Changes now appear within about five minutes. Use the `mmsar_document_max_age` filter to change the duration, or return 0 to disable caching entirely.
+
+= 1.10.0 - 2026-08-12 =
+* New: Add and manage endpoints from Settings > Agent-Ready — no code required. Give it a name and a URL, tick which of the three documents it belongs in, and save. Optional fields for methods, content type, authentication and link relation are tucked behind "Technical details".
+* New: Three abilities for the WordPress Abilities API (WP 6.9+) — list-endpoints, set-endpoint and delete-endpoint — so an AI agent connected through the MCP Adapter can manage the same list. Endpoints registered in code by a plugin or theme are read-only to these, and are reported as such rather than appearing to change.
+* New: Each saved endpoint reports where it is actually being published, and says why when it isn't — a mistyped URL or an unticked document is stated on the row instead of the entry quietly disappearing.
+* Change: Endpoints registered in code by a plugin or theme now appear under their own read-only "Added by Plugins" heading, separate from the ones you manage.
+
+= 1.9.0 - 2026-08-12 =
+* New: Other plugins and themes can now add their own endpoints to the files this plugin publishes. An endpoint registered once with `mmsar_register_endpoint()` (or the `mmsar_registered_endpoints` filter) is listed in `/.well-known/api-catalog`, `/llms.txt`, and the Agent Skills index, so something like an agent-ready contact form becomes discoverable everywhere agents look. Registered endpoints are shown read-only on the settings page.
+* New: `mmsar_api_catalog_linkset`, `mmsar_llms_txt_content`, and `mmsar_agent_skills_index` filters, for changes the endpoint registry does not cover.
+* No change to existing behavior: a site with nothing registered publishes byte-for-byte the same files it did before.
 
 = 1.8.2 - 2026-08-05 =
 * Hardening: the request URI used for canonical-redirect checks is now sanitized and parsed with wp_parse_url(); admin output is explicitly escaped. Code documentation and WordPress coding-standards cleanup. No changes to behavior.

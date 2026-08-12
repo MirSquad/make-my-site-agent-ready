@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.10.1 — 2026-08-12
+
+### Fixed
+
+- The documents this plugin publishes now send their own `Cache-Control` header (`public, max-age=300, s-maxage=300`) instead of inheriting whatever a host or CDN applies by default. That default can be very long: on a CDN-fronted install, `/.well-known/api-catalog` was served with `s-maxage=604800` and pinned a week-old copy at the edge — the origin published a newly added endpoint correctly while every visitor and agent kept receiving the stale document. These files describe live configuration, so they must state their own cache policy rather than let one be assumed for them. Applies to `llms.txt`, `llms-full.txt`, `security.txt`, `api-catalog`, the Agent Skills index, and `SKILL.md`. Use the `mmsar_document_max_age` filter to change the duration, or return `0` to send `no-cache` instead.
+
+## 1.10.0 — 2026-08-12
+
+### New
+
+- Endpoints can be added and managed from Settings > Agent-Ready, with no code. A name and a URL are the only required fields; tick which of the three documents it belongs in and save. Methods, content type, authentication and link relation sit behind a "Technical details" disclosure so the common case stays short.
+- Each saved endpoint reports where it is actually being published, and says why when it isn't — a mistyped URL, or a document that is ticked but switched off, is stated on the row rather than the entry silently failing to appear. Storing a row and publishing it are treated as separate questions: a row with a bad URL is kept and flagged, not blanked.
+- Three abilities for the WordPress Abilities API (WP 6.9+) — `list-endpoints`, `set-endpoint`, `delete-endpoint` — so an agent connected through the MCP Adapter can manage the same list. `set-endpoint` accepts partial updates: send an id and only the fields to change.
+
+### Changed
+
+- Endpoints registered in code by a plugin or theme now appear under their own read-only "Added by Plugins" heading, separate from the ones managed on the settings page. They are read-only to the abilities too, which return a `409` naming the owning plugin rather than reporting a success that changed nothing.
+
+### Security
+
+- URLs are validated, not merely escaped, before publication. `esc_url_raw()` percent-encodes its way out of trouble, so a value like `https://not a url` survives it as `https://not%20a%20url` and would have been published as a working link; publication now also requires a host that parses as one. Internationalized domains, `localhost`, and IPv4 hosts remain valid.
+
+## 1.9.0 — 2026-08-12
+
+### New
+
+- Other plugins and themes can now add their own endpoints to the documents this plugin publishes. An endpoint is described once — via `mmsar_register_endpoint()` or the `mmsar_registered_endpoints` filter — and is listed in `/.well-known/api-catalog`, `/llms.txt`, and the Agent Skills index at the same time. The motivating case: a contact form (or any other integration) that has been made agent-ready but has nowhere to announce itself. Each entry can opt into a subset of those documents via `surfaces`, choose its api-catalog link relation via `rel`, and carry `methods`, `type`, and `auth` details that are rendered appropriately per document. An integration that serves a `SKILL.md` of its own can pass `skill_url` (and optionally `skill_digest`) to get its own entry in the Agent Skills index rather than a bullet inside this plugin's skill.
+- Registered endpoints appear read-only under "Registered Endpoints" on the settings page, showing which documents each one is actually published in — an endpoint whose documents are all switched off says so, rather than silently claiming to be listed.
+- Three whole-document filters for what the registry does not model: `mmsar_api_catalog_linkset`, `mmsar_llms_txt_content`, and `mmsar_agent_skills_index`.
+
+### Notes
+
+- Registrations are validated before publication and dropped if they cannot be published safely: non-`http(s)` targets, missing title or URL, unrecognised link relations and HTTP methods, and invented media types. Text fields are flattened to a single line and markdown link/code syntax is escaped, so a description carrying a newline or `[link](…)` cannot forge a heading, a list item, or a link in `llms.txt` or `SKILL.md`. A media type is never guessed — an unstated one is omitted rather than assumed to be `application/json`, keeping the promise that a stated type is the type the endpoint really returns.
+- `llms.txt` renders registered endpoints outside its day-long transient, so an endpoint registered by a newly activated plugin appears immediately rather than whenever the cache next expires.
+- No change to existing behavior: with nothing registered, all documents are byte-for-byte what they were before.
+
 ## 1.8.2 — 2026-08-05
 
 ### Security

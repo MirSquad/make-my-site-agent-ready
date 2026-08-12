@@ -111,6 +111,7 @@ class MMSAR_Endpoints {
 			set_transient( 'mmsar_llms_full_txt', $content, DAY_IN_SECONDS );
 		}
 
+		mmsar_send_cache_headers();
 		header( 'Content-Type: text/plain; charset=UTF-8' );
 		status_header( 200 );
 
@@ -195,6 +196,7 @@ class MMSAR_Endpoints {
 			$content = self::default_security_txt();
 		}
 
+		mmsar_send_cache_headers();
 		header( 'Content-Type: text/plain; charset=UTF-8' );
 		status_header( 200 );
 
@@ -313,8 +315,30 @@ class MMSAR_Endpoints {
 		);
 		$entry['item'] = $items;
 
+		// Endpoints other plugins registered, merged in under whichever relation each one asked for
+		// rather than replacing ours — a site can have both our llms.txt and a plugin's own API
+		// description under `describedby`.
+		foreach ( MMSAR_Registry::api_catalog_links() as $rel => $links ) {
+			$entry[ $rel ] = isset( $entry[ $rel ] ) ? array_merge( $entry[ $rel ], $links ) : $links;
+		}
+
 		$linkset = array( 'linkset' => array( $entry ) );
 
+		/**
+		 * Filters the complete api-catalog linkset before it is served.
+		 *
+		 * The escape hatch for anything the endpoint registry cannot express — extra linkset
+		 * entries with their own anchor, say. Most integrations want mmsar_registered_endpoints
+		 * instead, which also covers llms.txt and Agent Skills.
+		 *
+		 * @param array $linkset The RFC 9264 linkset document, as a PHP array.
+		 */
+		$linkset = apply_filters( 'mmsar_api_catalog_linkset', $linkset );
+		if ( ! is_array( $linkset ) ) {
+			$linkset = array( 'linkset' => array( $entry ) );
+		}
+
+		mmsar_send_cache_headers();
 		header( 'Content-Type: application/linkset+json; charset=UTF-8' );
 		header( 'Access-Control-Allow-Origin: *' );
 		status_header( 200 );

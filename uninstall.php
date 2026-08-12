@@ -18,6 +18,7 @@ delete_option( 'mmsar_robots_txt_extra' );
 delete_option( 'mmsar_content_signals' );
 delete_option( 'mmsar_structured_data' );
 delete_option( 'mmsar_features' );
+delete_option( 'mmsar_endpoints' );
 delete_transient( 'llmmd_llms_txt' );
 delete_transient( 'mmsar_llms_full_txt' );
 delete_transient( 'mmsar_flush_needed' );
