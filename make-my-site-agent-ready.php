@@ -3,7 +3,7 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.11.0
+ * Version:           1.12.0
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.11.0' );
+define( 'MMSAR_VERSION', '1.12.0' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -213,6 +213,27 @@ function mmsar_maybe_flush_rewrites() {
 	}
 }
 
+/**
+ * Marks the rewrite rules as needing a flush on the next request.
+ *
+ * Watching the option itself, not just the settings form: MMSAR_Admin::sanitize_features() only
+ * runs for saves that go through the Settings API, so a write from anywhere else — WP-CLI, another
+ * plugin, an ability added later — would leave the old rules in place and keep serving an endpoint
+ * whose feature is now off. Being called twice for one settings save is harmless.
+ *
+ * The window is a day rather than a minute because the flush can only happen on a *later* request,
+ * and there is no guarantee one arrives promptly: the settings page redirects immediately, but a
+ * site whose features were changed by WP-CLI might see no traffic for hours, and a pending flush
+ * that quietly expires is the bug this is here to prevent.
+ *
+ * @return void
+ */
+function mmsar_flag_flush_needed() {
+	set_transient( 'mmsar_flush_needed', 1, DAY_IN_SECONDS );
+}
+add_action( 'add_option_mmsar_features', 'mmsar_flag_flush_needed' );
+add_action( 'update_option_mmsar_features', 'mmsar_flag_flush_needed' );
+
 // Prevent WordPress canonical redirect from appending trailing slashes to plugin-owned endpoints.
 add_filter( 'redirect_canonical', 'mmsar_prevent_canonical_redirect' );
 /**
@@ -374,6 +395,13 @@ function mmsar_send_link_headers() {
 	if ( mmsar_feature_enabled( 'agent_skills' ) ) {
 		header( 'Link: <' . esc_url_raw( home_url( '/.well-known/agent-skills/index.json' ) ) . '>; rel="service-desc"', false );
 	}
+	// rel="describedby" and type="text/plain" both match how the api-catalog already lists llms.txt,
+	// so an agent reading the header and an agent reading the catalog are told the same thing.
+	// llms-full.txt is deliberately not advertised here: it is the same content at full length, and
+	// it is already in the catalog, so a header on every page view would cost bytes to say it twice.
+	if ( mmsar_feature_enabled( 'llms_txt' ) ) {
+		header( 'Link: <' . esc_url_raw( home_url( '/llms.txt' ) ) . '>; rel="describedby"; type="text/plain"', false );
+	}
 
 	if ( ! mmsar_feature_enabled( 'markdown' ) ) {
 		return;
@@ -424,6 +452,10 @@ if ( mmsar_feature_enabled( 'robots_txt' ) ) {
 	// SEO plugin. Runs at PHP_INT_MAX for the same reason the Sitemap directive does: the rules it
 	// has to override are written later in the chain than any normal priority can see.
 	add_filter( 'robots_txt', array( 'MMSAR_Robots_Allow', 'filter' ), PHP_INT_MAX, 2 );
+	// Registered after MMSAR_Robots_Allow so it runs after it: that filter parses the finished
+	// robots.txt line by line looking for user-agent groups, and appending a non-group directive
+	// before it runs would put an unfamiliar line in front of the parser for no benefit.
+	add_filter( 'robots_txt', 'mmsar_robots_txt_llms', PHP_INT_MAX, 2 );
 }
 /**
  * Mmsar robots txt.
@@ -493,6 +525,39 @@ function mmsar_robots_txt_sitemap( $output ) {
 		return $output;
 	}
 	return rtrim( $output, "\n" ) . "\n\nSitemap: " . $sitemap_url . "\n";
+}
+
+/**
+ * Appends an Llms-txt directive pointing at this site's /llms.txt.
+ *
+ * There is no ratified robots.txt directive for llms.txt — the llms.txt proposal says to link the
+ * file from your homepage, and says nothing about robots.txt. This is published anyway because
+ * robots.txt is the first file many agents and agent-readiness checkers fetch, and because a
+ * compliant parser ignores a top-level directive it does not recognise (RFC 9309), so the line
+ * cannot break crawling for anyone. It mirrors Sitemap: deliberately — same shape, same position,
+ * same "one absolute URL" rule.
+ *
+ * @param string $output    The robots.txt content assembled so far.
+ * @param bool   $is_public Whether the site is set to be indexed (blog_public).
+ * @return string The robots.txt content with an Llms-txt directive appended when appropriate.
+ */
+function mmsar_robots_txt_llms( $output, $is_public ) {
+	// A site set to discourage search engines has asked crawlers to stay away. Pointing agents at a
+	// curated index of its content contradicts that, the same way the AI-crawler Allow rules would.
+	if ( ! $is_public ) {
+		return $output;
+	}
+	// Never advertise a switched-off endpoint: with llms.txt disabled the URL 404s.
+	if ( ! mmsar_feature_enabled( 'llms_txt' ) ) {
+		return $output;
+	}
+	// Any existing mention wins. The case this really guards is a site owner who added the line by
+	// hand in the extra-rules textarea before the plugin published it — updating should not silently
+	// give them the directive twice.
+	if ( false !== stripos( $output, 'llms.txt' ) ) {
+		return $output;
+	}
+	return rtrim( $output, "\n" ) . "\n\nLlms-txt: " . home_url( '/llms.txt' ) . "\n";
 }
 
 /**

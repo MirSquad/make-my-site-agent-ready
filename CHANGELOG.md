@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.12.0 — 2026-08-13
+
+### Added
+
+- `robots.txt` now carries an `Llms-txt:` directive pointing at this site's `/llms.txt`. The gap it closes: a site could publish an llms.txt and name it in `/.well-known/api-catalog` and the Agent Skills index, while saying nothing about it in the file most agents and agent-readiness checkers fetch first. There is no ratified robots.txt directive for llms.txt — the llms.txt proposal says to link the file from your homepage and does not mention robots.txt — but RFC 9309 parsers skip top-level directives they do not recognise, so the line cannot affect crawling for anyone.
+- A `Link: <https://example.com/llms.txt>; rel="describedby"; type="text/plain"` header on every front-end response, next to the existing `api-catalog` and Agent Skills headers. The relation and media type match how the api-catalog already lists llms.txt, so an agent reading headers and an agent reading the catalog get the same answer. `llms-full.txt` is deliberately left to the catalog rather than adding a second header to every page view.
+- Feature toggles now flush rewrite rules no matter how the `mmsar_features` option is written. The settings page already handled this from inside its sanitize callback, which only runs for saves that go through the Settings API; a write from WP-CLI, another plugin, or an ability added later left the old rules in place, so an endpoint whose feature had just been switched off kept serving while the documents correctly stopped advertising it. `add_option_mmsar_features` / `update_option_mmsar_features` now raise the same flag, and the settings page raises it through the same helper so the two paths cannot drift apart.
+- The pending-flush flag lives for a day instead of a minute. The flush can only run on a later request — rules for the current one are already registered — and a minute is long enough for the settings page's own redirect but not for a site whose features were changed by WP-CLI and that then sees no traffic, where the flag would expire and the flush would silently never happen.
+- Both new outputs are gated on the `llms_txt` feature, so neither can advertise a switched-off endpoint. The robots.txt directive additionally returns early on `blog_public = 0`, matching the AI-crawler rules, and skips itself when the assembled robots.txt already mentions `llms.txt` — a line added by hand in the Additional Rules field survives the update instead of being duplicated. It is registered at `PHP_INT_MAX` after `MMSAR_Robots_Allow::filter()` so that parser never sees the new directive.
+
 ## 1.11.0 — 2026-08-12
 
 ### Fixed

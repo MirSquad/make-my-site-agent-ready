@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.11.0
+Stable tag: 1.12.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -25,10 +25,11 @@ Every feature below can be switched off individually under Settings > Agent-Read
 * **security.txt** — Serves `/.well-known/security.txt` (RFC 9116). Enter your security contact as a full URL, a path like `/contact`, or an email address, and the plugin formats it correctly
 * **api-catalog** — Serves `/.well-known/api-catalog` (RFC 9727), a machine-readable index linking llms.txt, llms-full.txt, security.txt, the Agent Skills index, sitemap, and feed
 * **Agent Skills discovery** — Serves `/.well-known/agent-skills/index.json` plus a bundled skill teaching agents how to use this plugin's markdown endpoints
-* **Link response headers** — Every front-end response carries `Link` headers (RFC 8288) pointing to api-catalog and the Agent Skills index; singular posts/pages add a third pointing to their markdown alternate — so agents that only read headers, not HTML, can still find these resources
+* **Link response headers** — Every front-end response carries `Link` headers (RFC 8288) pointing to api-catalog, llms.txt, and the Agent Skills index; singular posts/pages add one more pointing to their markdown alternate — so agents that only read headers, not HTML, can still find these resources
 * **Content Signals** — Declares `Content-Signal: search=..., ai-input=..., ai-train=...` (contentsignals.org) under each AI crawler's group in `robots.txt`, configurable in Settings > Agent-Ready. Defaults to allowing search and live AI retrieval, declining AI training use.
 * **Structured data (JSON-LD)** — Optional (off by default) pointer to the markdown alternate on each enabled post/page. When Yoast SEO is active and produces schema for the page, the pointer merges directly into Yoast's own `Article`/`WebPage` piece — no duplicate block. Otherwise, a standalone `Article`/`WebPage` JSON-LD block is added instead. Enable in Settings > Agent-Ready.
 * **AI crawler rules** — Adds explicit `Allow: /` entries for GPTBot, ClaudeBot, and other AI crawlers in `robots.txt`
+* **llms.txt discovery in robots.txt** — Adds an `Llms-txt:` directive pointing at your `/llms.txt`, so agents that fetch `robots.txt` first are told where the index is. Skipped if llms.txt is switched off, or if `robots.txt` already mentions it
 * **Endpoints stay reachable** — If `robots.txt` disallows a path one of your published endpoints lives on (several SEO plugins disallow `/wp-json/` by default), an `Allow:` line for that individual endpoint is added above the rule blocking it. The endpoint stays reachable to agents that found it in your api-catalog, llms.txt or Agent Skills index; the rest of the REST API stays disallowed
 * **YAML frontmatter** — Title, date, author, URL, excerpt, categories, and tags
 * **Pre-generated** — Markdown is generated when posts are saved, so `.md` requests are instant
@@ -104,6 +105,12 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.12.0 - 2026-08-13 =
+* New: `robots.txt` now carries an `Llms-txt:` directive pointing at `/llms.txt`. The site was publishing an llms.txt and advertising it in the api-catalog and the Agent Skills index, but said nothing about it in the one file agents and agent-readiness checkers fetch first. There is no ratified robots.txt directive for llms.txt, and compliant parsers ignore directives they do not recognise, so the line cannot affect crawling.
+* New: A `Link: <.../llms.txt>; rel="describedby"; type="text/plain"` header on every front-end response, alongside the existing api-catalog and Agent Skills headers. Same relation and media type the api-catalog already uses for llms.txt, so header-reading and catalog-reading agents are told the same thing.
+* Fix: Switching a feature off now always flushes rewrite rules, whichever way the setting was written. Saving on the settings page already did this; a change made by WP-CLI or by another plugin did not, leaving the endpoint reachable after its feature was switched off. The pending flush also survives for a day rather than a minute, so it still happens on a site that gets no traffic immediately afterwards.
+* Both new outputs are skipped when the llms.txt feature is switched off, so neither ever points at a 404. The robots.txt directive is also skipped on sites set to discourage search engines, and when the finished robots.txt already mentions llms.txt — an owner who added the line by hand under Additional Rules keeps theirs instead of getting it twice.
 
 = 1.11.0 - 2026-08-12 =
 * Fix: An endpoint published in the api-catalog, llms.txt or Agent Skills index is no longer blocked by a `Disallow` rule in the same robots.txt. The plugin now adds an `Allow:` line for the individual endpoint path, in the same user-agent group and above the rule that blocks it, so compliant crawlers apply the more specific rule and the endpoint stays reachable while the broader path stays disallowed. This mattered most for `/wp-json/`, which Yoast SEO disallows by default (the "deny_wp_json_crawling" option) — a site could advertise a REST endpoint in three discovery documents and tell agents to stay off it in the fourth.

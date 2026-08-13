@@ -140,10 +140,11 @@ class MMSAR_Admin {
 			$out[ $key ] = ( isset( $input[ $key ] ) && '1' === $input[ $key ] ) ? '1' : '0';
 		}
 		// Enabling or disabling a feature adds or removes rewrite rules, which only take effect
-		// after a flush.
+		// after a flush. Flagged through the shared helper so this path and the option hooks that
+		// catch non-Settings-API writes can never drift to different flags or lifetimes.
 		delete_transient( 'llmmd_llms_txt' );
 		delete_transient( 'mmsar_llms_full_txt' );
-		set_transient( 'mmsar_flush_needed', 1, MINUTE_IN_SECONDS );
+		mmsar_flag_flush_needed();
 		return $out;
 	}
 
@@ -916,6 +917,7 @@ class MMSAR_Admin {
 			echo '<li>' . esc_html__( 'Explicit Allow rules for AI crawlers (GPTBot, ClaudeBot, Anthropic-AI, GoogleOther, PerplexityBot, FacebookBot). Without them, these crawlers fall back to your general rules, which may be more restrictive than you intend.', 'make-my-site-agent-ready' ) . '</li>';
 			echo '<li>' . esc_html__( 'The Content-Signal directive declaring how AI systems may use your content. The Content Signals settings below have no effect while this is off, because those directives are written into robots.txt.', 'make-my-site-agent-ready' ) . '</li>';
 			echo '<li>' . esc_html__( 'A Sitemap directive, if nothing else on your site already adds one.', 'make-my-site-agent-ready' ) . '</li>';
+			echo '<li>' . esc_html__( 'An Llms-txt directive pointing at your llms.txt, for agents that read robots.txt first.', 'make-my-site-agent-ready' ) . '</li>';
 			echo '</ul><p>';
 			esc_html_e( 'If you manage AI crawler rules yourself, that is fine — nothing is broken. Add the rules to your own robots.txt, or switch this feature back on in Features above.', 'make-my-site-agent-ready' );
 			echo '</p></div>';
@@ -925,9 +927,12 @@ class MMSAR_Admin {
 		echo '<p>';
 		printf(
 			/* translators: %s: robots.txt URL */
-			esc_html__( 'This plugin appends explicit Allow rules for AI crawlers (GPTBot, ClaudeBot, etc.), a Content-Signal directive, and a Sitemap directive to %s.', 'make-my-site-agent-ready' ),
+			esc_html__( 'This plugin appends explicit Allow rules for AI crawlers (GPTBot, ClaudeBot, etc.), a Content-Signal directive, a Sitemap directive, and an Llms-txt directive to %s.', 'make-my-site-agent-ready' ),
 			'<a href="' . esc_url( $url ) . '" target="_blank"><code>robots.txt</code></a>'
 		);
+		echo '</p>';
+		echo '<p>';
+		esc_html_e( 'The Llms-txt directive points agents at your llms.txt from the first file most of them fetch. It is not a ratified standard — the llms.txt proposal says nothing about robots.txt — but parsers ignore directives they do not recognise, so it cannot affect crawling, and agent-readiness checkers do look for it. It is skipped if llms.txt is switched off in Features above, or if the finished robots.txt already mentions llms.txt (so a line you added by hand below is left alone rather than duplicated).', 'make-my-site-agent-ready' );
 		echo '</p>';
 		echo '<p>';
 		esc_html_e( 'It appends rather than replaces, so it works alongside any robots.txt that WordPress generates on the fly — including one produced by an SEO plugin such as Yoast, Rank Math or All in One SEO. Their rules stay exactly as they are, and the AI crawler rules are added underneath.', 'make-my-site-agent-ready' );
