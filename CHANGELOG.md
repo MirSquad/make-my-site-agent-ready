@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.12.1 — 2026-08-19
+
+### Fixed
+
+- Directives entered in **Additional Rules** are now appended at the very end of the `robots_txt` filter chain (`PHP_INT_MAX`) rather than with the AI-crawler rules at priority 99, so nothing that runs later can rewrite or remove them. The concrete failure: Yoast's `remove_default_robots()` calls `preg_replace()` against a `User-agent: * / Disallow: /wp-admin/ / Allow: /wp-admin/admin-ajax.php` block with no `$limit` argument, so it strips *every* match in the document rather than only the copy WordPress core emitted. An owner who pasted those three lines into Additional Rules in core's line order had them silently deleted from the served file — while this plugin's own settings preview continued to show them, because Yoast's robots.txt integration is gated to front-end requests and never runs in wp-admin. Silent loss confirmed by a preview showing the opposite is the part worth fixing; running last removes the whole class of problem rather than working around this one plugin.
+- The new pass is registered ahead of the other `PHP_INT_MAX` passes, so an owner-supplied `Sitemap:` line still suppresses the automatic one, and `MMSAR_Robots_Allow`'s endpoint carve-outs still apply to user-defined groups.
+- Extra rules are honoured on `blog_public = 0` sites exactly as before. Withholding rules this plugin invented on a site set to discourage crawlers is deliberate; dropping the owner's own text never was.
+
 ## 1.12.0 — 2026-08-13
 
 ### Added

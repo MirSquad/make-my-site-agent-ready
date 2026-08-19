@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.12.0
+Stable tag: 1.12.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -105,6 +105,9 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.12.1 - 2026-08-19 =
+* Fix: Rules typed into Additional Rules are now appended at the very end of the robots.txt filter chain instead of alongside the AI-crawler rules, so another plugin can no longer rewrite or delete them. Yoast strips every `User-agent: * / Disallow: /wp-admin/ / Allow: /wp-admin/admin-ajax.php` block it finds — not just WordPress core's — so an owner who pasted those three lines here lost them from the served robots.txt while the settings preview still showed them, because Yoast's robots.txt code only runs on front-end requests. Extra rules now survive regardless of what other plugins do, and no longer need to be written in an unusual line order to get through.
 
 = 1.12.0 - 2026-08-13 =
 * New: `robots.txt` now carries an `Llms-txt:` directive pointing at `/llms.txt`. The site was publishing an llms.txt and advertising it in the api-catalog and the Agent Skills index, but said nothing about it in the one file agents and agent-readiness checkers fetch first. There is no ratified robots.txt directive for llms.txt, and compliant parsers ignore directives they do not recognise, so the line cannot affect crawling.
