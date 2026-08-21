@@ -241,6 +241,7 @@ MD;
 
 		mmsar_send_cache_headers();
 		header( 'Content-Type: application/json; charset=UTF-8' );
+		MMSAR_Agent_Log::record( 'Agent Skills index' );
 		header( 'Access-Control-Allow-Origin: *' );
 		status_header( 200 );
 		echo wp_json_encode( $index, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
@@ -259,6 +260,7 @@ MD;
 	private static function serve_skill_md() {
 		mmsar_send_cache_headers();
 		header( 'Content-Type: text/markdown; charset=UTF-8' );
+		MMSAR_Agent_Log::record( 'SKILL.md' );
 		header( 'Access-Control-Allow-Origin: *' );
 		status_header( 200 );
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw text/markdown, not HTML.

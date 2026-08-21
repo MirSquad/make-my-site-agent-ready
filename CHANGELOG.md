@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.15.0 — 2026-08-19
+
+### Removed
+
+- **Markdown by content negotiation** (1.13.0–1.13.1). Serving a different representation from the canonical URL requires the cache layer to key on `Accept`; Cloudflare does not, so a markdown response cached for a URL was served to the next browser that requested it and a visitor received a file download in place of the page. Reproduced three times on cache-busted URLs. The mitigation — marking markdown responses `private, no-store` — failed on the host tested, which rewrote the header to `public, max-age=300, s-maxage=604800` before it reached the edge. Neither condition is under a plugin's control, and the failure mode lands on human visitors rather than agents, so the feature is withdrawn. Sites that control their own CDN can achieve the same result with a cache rule that bypasses the cache when `Accept` contains `text/markdown`.
+
+### Fixed
+
+- The **agent request log** now keeps its own record rather than depending entirely on the Activity Log plugin. Its `aal_insert_log()` API proved to be reachable in wp-admin but not on front-end requests on one live host — precisely the requests agents make — so the guard around it silently discarded every entry, and the log stayed empty with no indication why. Entries are now written to a capped option (most recent 200, no autoload, no new database table) and displayed on the Agent-Ready settings page, with the Activity Log copy kept as a mirror wherever that API is present. The settings section states which of the two is in effect.
+
+- Database errors from the Activity Log mirror are suppressed for the duration of that call. It writes to a table it owns and upgrades on its own schedule; a site whose schema has not caught up produced an `Unknown column` error on every agent request, which with `WP_DEBUG_DISPLAY` enabled would print into a response being served. The entry is already stored in the plugin's own log by that point, so the mirror must never be able to affect the page.
+### Changed
+
+- The footer llms.txt link's description previously claimed to be "the only way a fetch tool reliably finds it". Measurement contradicted that: Anthropic's WebFetch was asked what it could see of a page carrying such a link and reported no copyright line, no footer navigation and no link text, while returning main-content links and inline JSON-LD verbatim — it extracts the article and discards the chrome. A footer link does reach crawlers that fetch and store raw HTML, and that is now what the description says.
+
+## 1.14.0 — 2026-08-19
+
+### New
+
+- Optional visible link to `llms.txt` in the site footer, off by default. This exists because of a measurement rather than a guess: fetching a live site with Anthropic's WebFetch and asking what it could see established that it receives the response body converted to markdown and nothing else — the `<link rel="alternate" type="text/markdown">` tag, the `<link rel="canonical">` tag and the RSS `<link>` were all absent from what it received, while a URL carried in an inline JSON-LD block came through. HTTP response headers are likewise discarded. The consequence is that a site can advertise `llms.txt` through a `Link` header, a `robots.txt` directive, `/.well-known/api-catalog` and the Agent Skills index — four channels, all correct — and still be invisible to a body-only fetch tool. On the site tested, the HTML contained zero references to `llms.txt`. A visible anchor in the body is the one channel that reliably survives, which is also what the llms.txt proposal asks for ("link the file from your homepage"). Rendered on `wp_footer`, plain text and a real `href` rather than a hidden or `aria-hidden` element, since anything stripped from the accessibility tree is liable to be stripped by the same markdown conversion. Text filterable via `mmsar_llms_txt_link_text`.
+
+## 1.13.1 — 2026-08-19
+
+### Fixed
+
+- Markdown served by content negotiation is now marked `Cache-Control: private, no-store`. `Vary: Accept` is advisory, and Cloudflare — like several CDNs — does not include `Accept` in its cache key, so the first representation cached for a URL was served to every subsequent request regardless of what it asked for. In practice: an agent fetched a post as markdown, the CDN cached that, and the next human visitor to the same URL was served a markdown file instead of the page. Reproduced on a live site minutes after the feature was switched on. Marking the response uncacheable removes the failure rather than depending on `Vary` being honoured. The consequence is that a URL already cached as HTML continues to be served as HTML to agents as well — negotiation now works on cache misses and is inert on hits, which fails safely: an agent receives HTML rather than a person receiving a download. Sites behind a CDN they control can restore full behaviour with a cache rule that bypasses the cache when `Accept` contains `text/markdown`.
+
+## 1.13.0 — 2026-08-19
+
+### New
+
+- **Markdown by content negotiation** (off by default). Agents ask for markdown with an `Accept` header on the URL they were already fetching; the `.md` mirror only helps a client that already knows it exists. Testing against a live CDN-fronted site found the CDN answering that header with its own whole-page conversion — nav chrome, "Skip to content", meta-derived frontmatter, 30% larger than the plugin's output. Serving markdown from the origin takes precedence, so the canonical URL now returns the same clean markdown as the `.md` endpoint. Accept parsing is deliberately strict, because getting it wrong serves markdown to a person: markdown must be named explicitly and outrank HTML, a wildcard counts only towards HTML, and a tie goes to HTML. `Vary: Accept` is sent on both representations, not just the markdown one.
+- **Agent request log** (off by default). Records which agents fetch the plugin's files, and what they asked for, into the Activity Log plugin under the object type "Agent-Ready". Written from the plugin's own serve points, so an ordinary HTML page view does no work at all. An optional sub-setting additionally records page views from recognised AI crawlers — the denominator, without which the log shows who used these files but not who arrived and ignored them. The same agent, file and IP is recorded at most once per five minutes, so a crawler looping on one URL cannot fill the table.
+
+
 ## 1.12.1 — 2026-08-19
 
 ### Fixed

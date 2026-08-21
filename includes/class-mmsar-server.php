@@ -131,6 +131,7 @@ class MMSAR_Server {
 		header( 'Content-Type: text/markdown; charset=UTF-8' );
 		header( 'X-Content-Type-Options: nosniff' );
 		header( 'X-Robots-Tag: noindex' );
+		MMSAR_Agent_Log::record( 'Markdown (.md URL)' );
 		header( 'Link: <' . esc_url( get_permalink( $post_id ) ) . '>; rel="canonical"' );
 		status_header( 200 );
 

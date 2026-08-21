@@ -3,7 +3,7 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.12.1
+ * Version:           1.15.0
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.12.1' );
+define( 'MMSAR_VERSION', '1.15.0' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -30,6 +30,7 @@ require_once MMSAR_PLUGIN_DIR . 'vendor/autoload.php';
 // it must exist even when the features that use it are switched off, so integrations can register
 // against it at any point in the load order.
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-registry.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-log.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-converter.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-server.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-llms-txt.php';
@@ -52,18 +53,26 @@ function mmsar_load_textdomain() {
 
 /**
  * The features that can be switched off individually, and whether each is on by default.
- * Every feature here shipped as always-on before 1.7.0, so all default to true — an install
- * that upgrades must behave exactly as it did before the user touches anything.
+ * Everything that shipped as always-on before 1.7.0 defaults to true — an install that upgrades
+ * must behave exactly as it did before the user touches anything. Features added since default to
+ * false where switching them on changes an existing response rather than adding a new one.
  */
 function mmsar_get_feature_keys() {
 	return array(
-		'markdown'      => true,
-		'llms_txt'      => true,
-		'llms_full_txt' => true,
-		'robots_txt'    => true,
-		'security_txt'  => true,
-		'api_catalog'   => true,
-		'agent_skills'  => true,
+		'markdown'             => true,
+		'llms_txt'             => true,
+		'llms_full_txt'        => true,
+		'robots_txt'           => true,
+		'security_txt'         => true,
+		'api_catalog'          => true,
+		'agent_skills'         => true,
+		// Also off by default, and for a different reason: it writes rows into the Activity Log
+		// plugin's table, which is the owner's data store rather than ours. Nothing should start
+		// filling someone's log uninvited.
+		'agent_log'            => false,
+		// Off by default because it is the only feature that adds something a visitor can see.
+		// Everything else this plugin publishes is invisible on the page.
+		'llms_txt_footer_link' => false,
 	);
 }
 
@@ -284,6 +293,7 @@ if ( mmsar_feature_enabled( 'agent_skills' ) ) {
 // Endpoints covers llms-full.txt, security.txt, api-catalog and the robots.txt rewrite, and gates
 // each one individually inside.
 MMSAR_Endpoints::init();
+MMSAR_Agent_Log::init();
 MMSAR_Admin::init();
 
 add_action( 'save_post', 'mmsar_on_save_post', 20, 2 );

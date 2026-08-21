@@ -113,6 +113,7 @@ class MMSAR_Endpoints {
 
 		mmsar_send_cache_headers();
 		header( 'Content-Type: text/plain; charset=UTF-8' );
+		MMSAR_Agent_Log::record( 'llms-full.txt' );
 		status_header( 200 );
 
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw text/plain, not HTML.
@@ -198,6 +199,7 @@ class MMSAR_Endpoints {
 
 		mmsar_send_cache_headers();
 		header( 'Content-Type: text/plain; charset=UTF-8' );
+		MMSAR_Agent_Log::record( 'security.txt' );
 		status_header( 200 );
 
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw text/plain, not HTML.
@@ -340,6 +342,7 @@ class MMSAR_Endpoints {
 
 		mmsar_send_cache_headers();
 		header( 'Content-Type: application/linkset+json; charset=UTF-8' );
+		MMSAR_Agent_Log::record( 'api-catalog' );
 		header( 'Access-Control-Allow-Origin: *' );
 		status_header( 200 );
 		echo wp_json_encode( $linkset, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );

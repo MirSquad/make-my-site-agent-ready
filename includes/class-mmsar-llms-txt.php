@@ -23,6 +23,15 @@ class MMSAR_LLMs_Txt {
 		add_action( 'init', array( __CLASS__, 'add_rewrite_rules' ) );
 		add_filter( 'query_vars', array( __CLASS__, 'add_query_vars' ) );
 		add_action( 'template_redirect', array( __CLASS__, 'serve_llms_txt' ) );
+		// A visible link in the page body is the only channel that reaches a fetch tool reliably.
+		// Tested against Anthropic's WebFetch on a live site: it receives the response body converted
+		// to markdown, and discards both HTTP headers and <link> elements from <head> — so the
+		// `Link: rel="describedby"` header and a <link> tag are equally invisible to it. Body content
+		// and inline JSON-LD are what survive. Hence a real link, in the body, that a person could
+		// also click.
+		if ( mmsar_feature_enabled( 'llms_txt_footer_link' ) ) {
+			add_action( 'wp_footer', array( __CLASS__, 'render_footer_link' ) );
+		}
 	}
 
 	/**
@@ -84,11 +93,40 @@ class MMSAR_LLMs_Txt {
 
 		mmsar_send_cache_headers();
 		header( 'Content-Type: text/plain; charset=UTF-8' );
+		MMSAR_Agent_Log::record( 'llms.txt' );
 		status_header( 200 );
 
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw text/plain llms.txt, not HTML.
 		echo $content;
 		exit;
+	}
+
+	/**
+	 * Outputs the visible llms.txt link in the footer.
+	 *
+	 * Deliberately a plain anchor with real link text rather than a hidden or aria-hidden element:
+	 * anything removed from the accessibility tree is also liable to be removed by the HTML-to-
+	 * markdown conversion agents fetch through, which would defeat the entire purpose.
+	 *
+	 * @return void
+	 */
+	public static function render_footer_link() {
+		if ( is_admin() || is_feed() || is_embed() ) {
+			return;
+		}
+
+		/**
+		 * Filters the link text shown in the footer.
+		 *
+		 * @param string $text Link text.
+		 */
+		$text = (string) apply_filters( 'mmsar_llms_txt_link_text', __( 'Site index for AI agents (llms.txt)', 'make-my-site-agent-ready' ) );
+
+		printf(
+			'<p class="mmsar-llms-txt-link" style="text-align:center;font-size:0.8em;opacity:0.7;margin:1em 0;"><a href="%1$s" rel="describedby">%2$s</a></p>',
+			esc_url( home_url( '/llms.txt' ) ),
+			esc_html( $text )
+		);
 	}
 
 	/**

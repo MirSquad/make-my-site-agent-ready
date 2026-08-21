@@ -95,31 +95,39 @@ class MMSAR_Admin {
 	 */
 	public static function get_feature_labels() {
 		return array(
-			'markdown'      => array(
+			'markdown'             => array(
 				__( 'Markdown URLs (.md)', 'make-my-site-agent-ready' ),
 				__( 'Serves a plain-markdown version of each post and page at its URL plus .md, and points agents at it via a <link> tag and Link header. Turning this off also disables the JSON-LD structured data below, which exists only to advertise these URLs.', 'make-my-site-agent-ready' ),
 			),
-			'llms_txt'      => array(
+			'llms_txt'             => array(
 				__( 'llms.txt', 'make-my-site-agent-ready' ),
 				__( 'An index of your site at /llms.txt, so an agent can see what content exists in one request.', 'make-my-site-agent-ready' ),
 			),
-			'llms_full_txt' => array(
+			'llms_txt_footer_link' => array(
+				__( 'Link to llms.txt in the footer', 'make-my-site-agent-ready' ),
+				__( 'Adds a small visible link to your llms.txt in the site footer, which is what the llms.txt proposal asks for. Whether it helps depends on the client: crawlers that fetch and store your raw HTML will see it, while tools that extract only a page\'s main content discard headers and footers — Anthropic\'s WebFetch was measured doing exactly that, so a footer link does not reach it. Off by default, because it is the only thing this plugin adds that a visitor can see.', 'make-my-site-agent-ready' ),
+			),
+			'llms_full_txt'        => array(
 				__( 'llms-full.txt', 'make-my-site-agent-ready' ),
 				__( 'The full markdown text of your content in a single file at /llms-full.txt.', 'make-my-site-agent-ready' ),
 			),
-			'robots_txt'    => array(
+			'robots_txt'           => array(
 				__( 'robots.txt AI crawler rules', 'make-my-site-agent-ready' ),
 				__( 'Adds explicit Allow rules for AI crawlers, a Content-Signal directive, and a Sitemap line.', 'make-my-site-agent-ready' ),
 			),
-			'security_txt'  => array(
+			'security_txt'         => array(
 				__( 'security.txt', 'make-my-site-agent-ready' ),
 				__( 'Publishes a security contact at /.well-known/security.txt (RFC 9116).', 'make-my-site-agent-ready' ),
 			),
-			'api_catalog'   => array(
+			'api_catalog'          => array(
 				__( 'api-catalog', 'make-my-site-agent-ready' ),
 				__( 'Lists your site\'s machine-readable endpoints at /.well-known/api-catalog (RFC 9727).', 'make-my-site-agent-ready' ),
 			),
-			'agent_skills'  => array(
+			'agent_log'            => array(
+				__( 'Agent request log', 'make-my-site-agent-ready' ),
+				__( 'Records which agents fetch the files above, and what they asked for. Entries are listed further down this page, and also written to the Activity Log plugin when it is available. Nothing is recorded on a normal page view — only when one of these agent-facing files is actually served. Off by default.', 'make-my-site-agent-ready' ),
+			),
+			'agent_skills'         => array(
 				__( 'Agent Skills discovery', 'make-my-site-agent-ready' ),
 				__( 'Publishes an Agent Skills index at /.well-known/agent-skills/ describing how agents can work with this site.', 'make-my-site-agent-ready' ),
 			),
@@ -155,7 +163,7 @@ class MMSAR_Admin {
 	 */
 	public static function render_features_section() {
 		echo '<p>';
-		esc_html_e( 'Everything this plugin publishes is listed here. All of it is on by default — switch off anything you already handle elsewhere, and the plugin will stop touching it entirely.', 'make-my-site-agent-ready' );
+		esc_html_e( 'Everything this plugin publishes is listed here. Almost all of it is on by default — switch off anything you already handle elsewhere, and the plugin will stop touching it entirely. Anything marked off by default changes an existing response rather than adding a new one, so it waits for you to turn it on.', 'make-my-site-agent-ready' );
 		echo '</p>';
 	}
 
@@ -467,6 +475,71 @@ class MMSAR_Admin {
 	}
 
 	/**
+	 * Intro copy for the agent log section, including whether it can actually write anywhere.
+	 *
+	 * @return void
+	 */
+	public static function render_agent_log_section() {
+		$entries  = MMSAR_Agent_Log::get_entries();
+		$mirrored = MMSAR_Agent_Log::activity_log_available();
+
+		echo '<p>';
+		esc_html_e( 'Every request an agent makes to the files above is recorded here. The same agent, file and IP is recorded at most once every five minutes, so a crawler looping on one URL cannot fill the list, and only the most recent 200 entries are kept.', 'make-my-site-agent-ready' );
+		echo '</p>';
+
+		echo '<p class="description">';
+		if ( $mirrored ) {
+			printf(
+				/* translators: %s: link to the Activity Log admin screen */
+				esc_html__( 'Entries are also being copied to %s under the type "Agent-Ready".', 'make-my-site-agent-ready' ),
+				'<a href="' . esc_url( admin_url( 'admin.php?page=activity_log_page' ) ) . '">' . esc_html__( 'Activity Log', 'make-my-site-agent-ready' ) . '</a>'
+			);
+		} else {
+			esc_html_e( 'The Activity Log plugin is not available, so entries are kept here only. Note that a plugin can be active in wp-admin and still not be loaded on the front-end requests that agents make, so this list is the reliable record either way.', 'make-my-site-agent-ready' );
+		}
+		echo '</p>';
+
+		if ( empty( $entries ) ) {
+			echo '<p><em>' . esc_html__( 'Nothing recorded yet. Agent traffic is intermittent — leave this on and check back.', 'make-my-site-agent-ready' ) . '</em></p>';
+			return;
+		}
+
+		echo '<table class="widefat striped" style="max-width:900px;"><thead><tr>';
+		echo '<th>' . esc_html__( 'When', 'make-my-site-agent-ready' ) . '</th>';
+		echo '<th>' . esc_html__( 'Agent', 'make-my-site-agent-ready' ) . '</th>';
+		echo '<th>' . esc_html__( 'Requested', 'make-my-site-agent-ready' ) . '</th>';
+		echo '<th>' . esc_html__( 'IP', 'make-my-site-agent-ready' ) . '</th>';
+		echo '</tr></thead><tbody>';
+
+		foreach ( $entries as $entry ) {
+			$when = isset( $entry['time'] ) ? (int) $entry['time'] : 0;
+			echo '<tr>';
+			echo '<td>' . esc_html( $when ? wp_date( 'Y-m-d H:i', $when ) : '—' ) . '</td>';
+			echo '<td>' . esc_html( isset( $entry['agent'] ) ? $entry['agent'] : '—' ) . '</td>';
+			echo '<td>' . esc_html( isset( $entry['surface'] ) ? $entry['surface'] : '—' ) . '</td>';
+			echo '<td><code>' . esc_html( isset( $entry['ip'] ) ? $entry['ip'] : '' ) . '</code></td>';
+			echo '</tr>';
+		}
+
+		echo '</tbody></table>';
+	}
+
+	/**
+	 * The one sub-option: whether to also log HTML page views from known agents.
+	 *
+	 * @return void
+	 */
+	public static function render_agent_log_pages_field() {
+		$checked = '1' === get_option( 'mmsar_agent_log_pages', '' ) ? 'checked' : '';
+		echo '<label><input type="checkbox" name="mmsar_agent_log_pages" value="1" ' . esc_attr( $checked ) . '> ';
+		esc_html_e( 'Record ordinary page views from recognised AI agents and crawlers', 'make-my-site-agent-ready' );
+		echo '</label>';
+		echo '<p class="description">';
+		esc_html_e( 'Without this you only see the agents that fetched an agent-facing file, which tells you who used them but not who came and ignored them. With it on, every front-end request costs one check of the user-agent string.', 'make-my-site-agent-ready' );
+		echo '</p>';
+	}
+
+	/**
 	 * Register settings.
 	 *
 	 * @return void
@@ -608,6 +681,34 @@ class MMSAR_Admin {
 				array( __CLASS__, 'render_robots_txt_field' ),
 				'make-my-site-agent-ready',
 				'mmsar_robots_txt'
+			);
+		}
+
+		// Agent log: the one sub-option, kept on its own because it is the only setting that makes
+		// the plugin inspect ordinary page requests rather than just its own endpoints.
+		register_setting(
+			'mmsar_settings_group',
+			'mmsar_agent_log_pages',
+			array(
+				'sanitize_callback' => array( __CLASS__, 'sanitize_checkbox' ),
+				'default'           => '',
+			)
+		);
+
+		if ( mmsar_feature_enabled( 'agent_log' ) ) {
+			add_settings_section(
+				'mmsar_agent_log',
+				__( 'Agent Request Log', 'make-my-site-agent-ready' ),
+				array( __CLASS__, 'render_agent_log_section' ),
+				'make-my-site-agent-ready'
+			);
+
+			add_settings_field(
+				'mmsar_agent_log_pages',
+				__( 'Also log normal page views', 'make-my-site-agent-ready' ),
+				array( __CLASS__, 'render_agent_log_pages_field' ),
+				'make-my-site-agent-ready',
+				'mmsar_agent_log'
 			);
 		}
 

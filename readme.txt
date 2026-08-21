@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.12.1
+Stable tag: 1.15.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -105,6 +105,22 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.15.0 - 2026-08-19 =
+* Removed: Markdown by content negotiation, added in 1.13.0. Serving markdown from the canonical URL depends on `Vary: Accept` being honoured, and Cloudflare does not include `Accept` in its cache key — so a markdown response cached for a URL was handed to the next visitor who opened it in a browser, as a file download instead of the page. Marking the response uncacheable did not help on the host tested, because the host rewrote the `Cache-Control` header on its way out. A plugin at the origin cannot guarantee either condition, and the failure lands on human visitors, so the feature has been withdrawn rather than shipped with a warning.
+* Fix: The agent request log now keeps its own record and no longer depends on the Activity Log plugin being loaded. That plugin's API is available in wp-admin but not on front-end requests on some hosts, which is exactly when agent traffic arrives — so every entry was being dropped at the point it mattered, with nothing to show for it. Entries are now listed on the Agent-Ready settings page itself (most recent 200), and still copied to Activity Log wherever its API is reachable. Database errors from the Activity Log copy are also suppressed, so a stale schema in that plugin cannot surface errors in a response being served.
+* Change: The footer llms.txt link's description no longer claims to be "the only way a fetch tool reliably finds it". Testing showed Anthropic's WebFetch extracts a page's main content and discards headers and footers, so a footer link does not reach it. It does reach crawlers that fetch and store raw HTML, which is what the description now says.
+
+= 1.14.0 - 2026-08-19 =
+* New: Optional visible link to your llms.txt in the site footer (off by default). Tested against Anthropic's WebFetch on a live site: it receives only the response body converted to markdown, and discards HTTP headers and `<link>` elements from `<head>`. So the `Link: rel="describedby"` header, the `Llms-txt:` robots.txt directive, the api-catalog entry and the Agent Skills index are all invisible to that class of client — a site can advertise llms.txt four ways and still not be showing it to the tools most likely to look. A real link in the page body is the one channel that survives. Off by default because it is the only thing this plugin adds that a visitor can see; the text is filterable via `mmsar_llms_txt_link_text`.
+
+= 1.13.1 - 2026-08-19 =
+* Fix: Markdown served by content negotiation is now marked uncacheable (`Cache-Control: private, no-store`). `Vary: Accept` is advisory and Cloudflare ignores it, so a markdown response cached for a URL was being served to the next visitor who requested that URL in a browser — a person got a file download instead of the page. Found on a live CDN-fronted site within minutes of enabling the feature. Marking the response uncacheable removes the possibility rather than relying on `Vary`. The trade-off: a page already cached as HTML keeps being served as HTML to agents too, so negotiation works on cache misses and does nothing on hits. That is the correct direction to fail — an agent getting HTML, never a person getting a file.
+
+= 1.13.0 - 2026-08-19 =
+* New: Markdown by content negotiation (off by default). Fetch tools ask for markdown with an `Accept` header on the normal page URL rather than looking for a separate `.md` address — Anthropic's WebFetch does this, and a CDN that converts your HTML may already be answering it with a whole-page conversion including your navigation. With this on, the same clean markdown the `.md` endpoint serves is returned from the canonical URL instead. Browsers are unaffected: markdown must be named explicitly and outrank HTML, a wildcard counts only towards HTML, and a tie goes to HTML. `Vary: Accept` is sent on both representations.
+* New: Agent request log (off by default). Records which agents fetch the files this plugin publishes, and what they asked for, into the Activity Log plugin under the type "Agent-Ready". Nothing is recorded on an ordinary page view — the log is written from the plugin's own endpoints, so a normal request costs nothing. An optional sub-setting also records page views from recognised AI crawlers, which is what lets you see who visited and ignored these files rather than only who used them. The same agent, file and IP is recorded at most once every five minutes.
+
 
 = 1.12.1 - 2026-08-19 =
 * Fix: Rules typed into Additional Rules are now appended at the very end of the robots.txt filter chain instead of alongside the AI-crawler rules, so another plugin can no longer rewrite or delete them. Yoast strips every `User-agent: * / Disallow: /wp-admin/ / Allow: /wp-admin/admin-ajax.php` block it finds — not just WordPress core's — so an owner who pasted those three lines here lost them from the served robots.txt while the settings preview still showed them, because Yoast's robots.txt code only runs on front-end requests. Extra rules now survive regardless of what other plugins do, and no longer need to be written in an unusual line order to get through.
