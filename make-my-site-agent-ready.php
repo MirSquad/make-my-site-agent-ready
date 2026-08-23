@@ -3,7 +3,7 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.17.0
+ * Version:           1.17.1
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.17.0' );
+define( 'MMSAR_VERSION', '1.17.1' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -491,7 +491,7 @@ function mmsar_robots_txt( $output, $is_public ) {
 	// When the site is set to discourage search engines (blog_public = 0), WordPress emits a
 	// blanket Disallow: / and the admin has explicitly asked crawlers to stay away. Appending our
 	// own "Allow: /" for AI bots would silently override that intent, so add none of the AI-crawler
-	// rules here. The owner's own extra rules are still honoured either way — that text is theirs,
+	// rules here. The owner's own extra rules are still honored either way — that text is theirs,
 	// not ours — but mmsar_robots_txt_extra() is what puts them in.
 	if ( ! $is_public ) {
 		return $output;
@@ -539,7 +539,7 @@ function mmsar_robots_txt( $output, $is_public ) {
  * it: text the owner typed by hand becomes the one thing in the document nothing else can take
  * away.
  *
- * Honoured whether or not the site is public. blog_public = 0 is a reason to withhold rules this
+ * Honored whether or not the site is public. blog_public = 0 is a reason to withhold rules this
  * plugin invented, not a reason to drop the owner's own.
  *
  * @param string $output The robots.txt content assembled so far.
@@ -578,7 +578,7 @@ function mmsar_robots_txt_sitemap( $output ) {
  * There is no ratified robots.txt directive for llms.txt — the llms.txt proposal says to link the
  * file from your homepage, and says nothing about robots.txt. This is published anyway because
  * robots.txt is the first file many agents and agent-readiness checkers fetch, and because a
- * compliant parser ignores a top-level directive it does not recognise (RFC 9309), so the line
+ * compliant parser ignores a top-level directive it does not recognize (RFC 9309), so the line
  * cannot break crawling for anyone. It mirrors Sitemap: deliberately — same shape, same position,
  * same "one absolute URL" rule.
  *

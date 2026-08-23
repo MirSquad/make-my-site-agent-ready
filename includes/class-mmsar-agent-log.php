@@ -399,7 +399,7 @@ class MMSAR_Agent_Log {
 	}
 
 	/**
-	 * A short label for the requesting agent: the matched agent name where recognised, otherwise a
+	 * A short label for the requesting agent: the matched agent name where recognized, otherwise a
 	 * trimmed user-agent so unknown clients stay identifiable.
 	 *
 	 * @return string

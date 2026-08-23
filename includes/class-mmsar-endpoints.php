@@ -208,7 +208,7 @@ class MMSAR_Endpoints {
 	}
 
 	/**
-	 * Normalises whatever the user typed in the Contact field into a value security.txt accepts.
+	 * Normalizes whatever the user typed in the Contact field into a value security.txt accepts.
 	 *
 	 * RFC 9116 requires Contact to be a URI, so a bare path or a bare email address is not valid
 	 * on its own. People reasonably type all three forms, so accept them all and expand:

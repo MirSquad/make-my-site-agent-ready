@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.17.0
+Stable tag: 1.17.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -106,6 +106,9 @@ Use the `mmsar_registered_endpoints` filter for the same thing without a direct 
 
 == Changelog ==
 
+= 1.17.1 - 2026-08-23 =
+* Change: Spelling normalized to US English throughout the plugin's text — settings descriptions, readme and code comments. No functional change.
+
 = 1.17.0 - 2026-08-23 =
 * New: A "Recent Agent Requests" dashboard widget showing the 20 most recent entries — agent, what it fetched, and how long ago — with a link to the full log. Hide it like any dashboard widget, from Screen Options.
 
@@ -122,7 +125,7 @@ Use the `mmsar_registered_endpoints` filter for the same thing without a direct 
 * Fix: "Visit plugin site" no longer appears twice on the Plugins screen. WordPress core already adds that link for any plugin that sets a Plugin URI header and is not installed from WordPress.org, and the plugin was appending a second, identical one. Core's link is kept; the filter that added the duplicate is removed.
 
 = 1.15.0 - 2026-08-19 =
-* Removed: Markdown by content negotiation, added in 1.13.0. Serving markdown from the canonical URL depends on `Vary: Accept` being honoured, and Cloudflare does not include `Accept` in its cache key — so a markdown response cached for a URL was handed to the next visitor who opened it in a browser, as a file download instead of the page. Marking the response uncacheable did not help on the host tested, because the host rewrote the `Cache-Control` header on its way out. A plugin at the origin cannot guarantee either condition, and the failure lands on human visitors, so the feature has been withdrawn rather than shipped with a warning.
+* Removed: Markdown by content negotiation, added in 1.13.0. Serving markdown from the canonical URL depends on `Vary: Accept` being honored, and Cloudflare does not include `Accept` in its cache key — so a markdown response cached for a URL was handed to the next visitor who opened it in a browser, as a file download instead of the page. Marking the response uncacheable did not help on the host tested, because the host rewrote the `Cache-Control` header on its way out. A plugin at the origin cannot guarantee either condition, and the failure lands on human visitors, so the feature has been withdrawn rather than shipped with a warning.
 * Fix: The agent request log now keeps its own record and no longer depends on the Activity Log plugin being loaded. That plugin's API is available in wp-admin but not on front-end requests on some hosts, which is exactly when agent traffic arrives — so every entry was being dropped at the point it mattered, with nothing to show for it. Entries are now listed on the Agent-Ready settings page itself (most recent 200), and still copied to Activity Log wherever its API is reachable. Database errors from the Activity Log copy are also suppressed, so a stale schema in that plugin cannot surface errors in a response being served.
 * Change: The footer llms.txt link's description no longer claims to be "the only way a fetch tool reliably finds it". Testing showed Anthropic's WebFetch extracts a page's main content and discards headers and footers, so a footer link does not reach it. It does reach crawlers that fetch and store raw HTML, which is what the description now says.
 
@@ -134,14 +137,14 @@ Use the `mmsar_registered_endpoints` filter for the same thing without a direct 
 
 = 1.13.0 - 2026-08-19 =
 * New: Markdown by content negotiation (off by default). Fetch tools ask for markdown with an `Accept` header on the normal page URL rather than looking for a separate `.md` address — Anthropic's WebFetch does this, and a CDN that converts your HTML may already be answering it with a whole-page conversion including your navigation. With this on, the same clean markdown the `.md` endpoint serves is returned from the canonical URL instead. Browsers are unaffected: markdown must be named explicitly and outrank HTML, a wildcard counts only towards HTML, and a tie goes to HTML. `Vary: Accept` is sent on both representations.
-* New: Agent request log (off by default). Records which agents fetch the files this plugin publishes, and what they asked for, into the Activity Log plugin under the type "Agent-Ready". Nothing is recorded on an ordinary page view — the log is written from the plugin's own endpoints, so a normal request costs nothing. An optional sub-setting also records page views from recognised AI crawlers, which is what lets you see who visited and ignored these files rather than only who used them. The same agent, file and IP is recorded at most once every five minutes.
+* New: Agent request log (off by default). Records which agents fetch the files this plugin publishes, and what they asked for, into the Activity Log plugin under the type "Agent-Ready". Nothing is recorded on an ordinary page view — the log is written from the plugin's own endpoints, so a normal request costs nothing. An optional sub-setting also records page views from recognized AI crawlers, which is what lets you see who visited and ignored these files rather than only who used them. The same agent, file and IP is recorded at most once every five minutes.
 
 
 = 1.12.1 - 2026-08-19 =
 * Fix: Rules typed into Additional Rules are now appended at the very end of the robots.txt filter chain instead of alongside the AI-crawler rules, so another plugin can no longer rewrite or delete them. Yoast strips every `User-agent: * / Disallow: /wp-admin/ / Allow: /wp-admin/admin-ajax.php` block it finds — not just WordPress core's — so an owner who pasted those three lines here lost them from the served robots.txt while the settings preview still showed them, because Yoast's robots.txt code only runs on front-end requests. Extra rules now survive regardless of what other plugins do, and no longer need to be written in an unusual line order to get through.
 
 = 1.12.0 - 2026-08-13 =
-* New: `robots.txt` now carries an `Llms-txt:` directive pointing at `/llms.txt`. The site was publishing an llms.txt and advertising it in the api-catalog and the Agent Skills index, but said nothing about it in the one file agents and agent-readiness checkers fetch first. There is no ratified robots.txt directive for llms.txt, and compliant parsers ignore directives they do not recognise, so the line cannot affect crawling.
+* New: `robots.txt` now carries an `Llms-txt:` directive pointing at `/llms.txt`. The site was publishing an llms.txt and advertising it in the api-catalog and the Agent Skills index, but said nothing about it in the one file agents and agent-readiness checkers fetch first. There is no ratified robots.txt directive for llms.txt, and compliant parsers ignore directives they do not recognize, so the line cannot affect crawling.
 * New: A `Link: <.../llms.txt>; rel="describedby"; type="text/plain"` header on every front-end response, alongside the existing api-catalog and Agent Skills headers. Same relation and media type the api-catalog already uses for llms.txt, so header-reading and catalog-reading agents are told the same thing.
 * Fix: Switching a feature off now always flushes rewrite rules, whichever way the setting was written. Saving on the settings page already did this; a change made by WP-CLI or by another plugin did not, leaving the endpoint reachable after its feature was switched off. The pending flush also survives for a day rather than a minute, so it still happens on a site that gets no traffic immediately afterwards.
 * Both new outputs are skipped when the llms.txt feature is switched off, so neither ever points at a 404. The robots.txt directive is also skipped on sites set to discourage search engines, and when the finished robots.txt already mentions llms.txt — an owner who added the line by hand under Additional Rules keeps theirs instead of getting it twice.
@@ -149,7 +152,7 @@ Use the `mmsar_registered_endpoints` filter for the same thing without a direct 
 = 1.11.0 - 2026-08-12 =
 * Fix: An endpoint published in the api-catalog, llms.txt or Agent Skills index is no longer blocked by a `Disallow` rule in the same robots.txt. The plugin now adds an `Allow:` line for the individual endpoint path, in the same user-agent group and above the rule that blocks it, so compliant crawlers apply the more specific rule and the endpoint stays reachable while the broader path stays disallowed. This mattered most for `/wp-json/`, which Yoast SEO disallows by default (the "deny_wp_json_crawling" option) — a site could advertise a REST endpoint in three discovery documents and tell agents to stay off it in the fourth.
 * The Allow paths are derived from the same registered-endpoint list that feeds those three documents, so endpoints added on the settings page and endpoints registered in code by a plugin or theme are both covered, and the two can't drift apart.
-* Lines are only added where they are actually needed: nothing is emitted for an endpoint no rule blocks, for one already allowed by an equally specific rule, or for one hosted on another domain. On sites set to discourage search engines (blog_public = 0) the file is left alone entirely, matching the existing behaviour for AI crawler rules.
+* Lines are only added where they are actually needed: nothing is emitted for an endpoint no rule blocks, for one already allowed by an equally specific rule, or for one hosted on another domain. On sites set to discourage search engines (blog_public = 0) the file is left alone entirely, matching the existing behavior for AI crawler rules.
 
 = 1.10.1 - 2026-08-12 =
 * Fix: The files this plugin publishes now send their own `Cache-Control` header (`public, max-age=300, s-maxage=300`) instead of inheriting whatever the host or CDN applies by default. On a CDN-fronted site that default can be very long — one real install had `/.well-known/api-catalog` pinned at the edge for a week, so an endpoint added on the settings page was published correctly by the site but not visible to anyone fetching it. Changes now appear within about five minutes. Use the `mmsar_document_max_age` filter to change the duration, or return 0 to disable caching entirely.

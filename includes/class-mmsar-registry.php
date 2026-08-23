@@ -29,7 +29,7 @@ class MMSAR_Registry {
 	/**
 	 * Link relations accepted for the api-catalog linkset, from the IANA link relations registry.
 	 * Anything outside this list falls back to `item`: a linkset is only useful to an agent if the
-	 * relation actually means what the agent thinks it means, so an unrecognised one is not passed
+	 * relation actually means what the agent thinks it means, so an unrecognized one is not passed
 	 * through to the published document.
 	 */
 	const RELATIONS = array( 'item', 'service-desc', 'service-doc', 'describedby', 'status', 'terms-of-service', 'license' );
@@ -82,13 +82,13 @@ class MMSAR_Registry {
 	}
 
 	/**
-	 * Every registered endpoint, validated and normalised.
+	 * Every registered endpoint, validated and normalized.
 	 *
 	 * Deliberately not memoised: registration can legitimately happen at any point before the
 	 * document is rendered, and a cached empty list from an early call would silently drop a
 	 * late registration.
 	 *
-	 * @return array[] Normalised endpoint descriptors, keyed numerically.
+	 * @return array[] Normalized endpoint descriptors, keyed numerically.
 	 */
 	public static function get_endpoints() {
 		/**
@@ -153,7 +153,7 @@ class MMSAR_Registry {
 	 * The registered endpoints that opted into one particular document.
 	 *
 	 * @param string $surface One of self::SURFACES.
-	 * @return array[] Normalised endpoint descriptors.
+	 * @return array[] Normalized endpoint descriptors.
 	 */
 	public static function get_for_surface( $surface ) {
 		$matched = array();
@@ -171,7 +171,7 @@ class MMSAR_Registry {
 	 * Deliberately more forgiving than normalize(): storing a row and publishing it are different
 	 * questions. A row with a mistyped URL is kept so the owner can see and fix it on the next page
 	 * load — normalize() is what decides, separately, whether it is fit to appear in a document.
-	 * Sanitising to the point of blanking the field would delete the evidence of the mistake.
+	 * Sanitizing to the point of blanking the field would delete the evidence of the mistake.
 	 *
 	 * @param mixed $rows Raw $_POST rows.
 	 * @return array[] Rows fit to store.
@@ -266,7 +266,7 @@ class MMSAR_Registry {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Validates and normalises one endpoint descriptor.
+	 * Validates and normalizes one endpoint descriptor.
 	 *
 	 * Everything here arrives from third-party code and is published verbatim into documents
 	 * agents act on, so each field is constrained to a shape that cannot break the document it
@@ -277,7 +277,7 @@ class MMSAR_Registry {
 	 * the row itself, rather than letting a mistyped URL silently drop the entry.
 	 *
 	 * @param mixed $endpoint Raw descriptor.
-	 * @return array|null Normalised descriptor, or null if it cannot be published safely.
+	 * @return array|null Normalized descriptor, or null if it cannot be published safely.
 	 */
 	public static function normalize( $endpoint ) {
 		if ( ! is_array( $endpoint ) ) {
@@ -398,7 +398,7 @@ class MMSAR_Registry {
 	/**
 	 * Validates a media type, per the RFC 9110 grammar for type/subtype.
 	 *
-	 * Returns '' rather than a default for anything unrecognised: the api-catalog and SKILL.md
+	 * Returns '' rather than a default for anything unrecognized: the api-catalog and SKILL.md
 	 * both promise that a stated type is the type the endpoint really returns, so a guessed
 	 * `application/json` on an endpoint that serves XML is worse than saying nothing.
 	 *
@@ -541,7 +541,7 @@ class MMSAR_Registry {
 	/**
 	 * The parenthetical technical summary for an llms.txt bullet — methods, media type, auth.
 	 *
-	 * @param array $endpoint Normalised endpoint descriptor.
+	 * @param array $endpoint Normalized endpoint descriptor.
 	 * @return string Summary such as "POST · application/json · no auth", or ''.
 	 */
 	private static function technical_facts( $endpoint ) {

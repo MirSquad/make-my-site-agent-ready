@@ -434,7 +434,7 @@ class MMSAR_Admin {
 	 * theme registered in code. Identified by elimination against the stored ids, so an integration
 	 * cannot claim to be owner-managed just by picking a matching id.
 	 *
-	 * @return array[] Normalised endpoints registered in code.
+	 * @return array[] Normalized endpoints registered in code.
 	 */
 	public static function get_code_registered_endpoints() {
 		$stored_ids = wp_list_pluck( MMSAR_Registry::get_stored(), 'id' );
@@ -526,7 +526,7 @@ class MMSAR_Admin {
 	public static function render_agent_log_pages_field() {
 		$checked = '1' === get_option( 'mmsar_agent_log_pages', '' ) ? 'checked' : '';
 		echo '<label><input type="checkbox" name="mmsar_agent_log_pages" value="1" ' . esc_attr( $checked ) . '> ';
-		esc_html_e( 'Record ordinary page views from recognised AI agents and crawlers', 'make-my-site-agent-ready' );
+		esc_html_e( 'Record ordinary page views from recognized AI agents and crawlers', 'make-my-site-agent-ready' );
 		echo '</label>';
 		echo '<p class="description">';
 		esc_html_e( 'Without this you only see the agents that fetched an agent-facing file, which tells you who used them but not who came and ignored them. With it on, every front-end request costs one check of the user-agent string.', 'make-my-site-agent-ready' );
@@ -1027,7 +1027,7 @@ class MMSAR_Admin {
 		);
 		echo '</p>';
 		echo '<p>';
-		esc_html_e( 'The Llms-txt directive points agents at your llms.txt from the first file most of them fetch. It is not a ratified standard — the llms.txt proposal says nothing about robots.txt — but parsers ignore directives they do not recognise, so it cannot affect crawling, and agent-readiness checkers do look for it. It is skipped if llms.txt is switched off in Features above, or if the finished robots.txt already mentions llms.txt (so a line you added by hand below is left alone rather than duplicated).', 'make-my-site-agent-ready' );
+		esc_html_e( 'The Llms-txt directive points agents at your llms.txt from the first file most of them fetch. It is not a ratified standard — the llms.txt proposal says nothing about robots.txt — but parsers ignore directives they do not recognize, so it cannot affect crawling, and agent-readiness checkers do look for it. It is skipped if llms.txt is switched off in Features above, or if the finished robots.txt already mentions llms.txt (so a line you added by hand below is left alone rather than duplicated).', 'make-my-site-agent-ready' );
 		echo '</p>';
 		echo '<p>';
 		esc_html_e( 'It appends rather than replaces, so it works alongside any robots.txt that WordPress generates on the fly — including one produced by an SEO plugin such as Yoast, Rank Math or All in One SEO. Their rules stay exactly as they are, and the AI crawler rules are added underneath.', 'make-my-site-agent-ready' );

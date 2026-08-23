@@ -184,7 +184,7 @@ class MMSAR_Agent_Log_Page {
 				paginate_links(
 					array(
 						// Built from admin_url rather than add_query_arg's default, which would
-						// assemble the base from REQUEST_URI and echo unsanitised query input.
+						// assemble the base from REQUEST_URI and echo unsanitized query input.
 						'base'      => admin_url( 'options-general.php?page=' . self::SLUG . '&paged=%#%' ),
 						'format'    => '',
 						'current'   => $paged,

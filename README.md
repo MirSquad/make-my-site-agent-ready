@@ -175,7 +175,7 @@ Register on `init` or earlier — the documents are built on `template_redirect`
 
 ### What gets validated
 
-These documents are read by agents that act on them, so a malformed entry is dropped rather than published. Registrations are rejected outright without a title and an `http(s)` URL; unrecognised link relations fall back to `item`, unrecognised HTTP methods and media types are discarded rather than passed through. Text is flattened to a single line and markdown link/code syntax is escaped, so a value containing a newline or `[link](…)` can't forge a heading, a list item, or a link in `llms.txt` or `SKILL.md` — worth knowing if your descriptions come from user input.
+These documents are read by agents that act on them, so a malformed entry is dropped rather than published. Registrations are rejected outright without a title and an `http(s)` URL; unrecognized link relations fall back to `item`, unrecognized HTTP methods and media types are discarded rather than passed through. Text is flattened to a single line and markdown link/code syntax is escaped, so a value containing a newline or `[link](…)` can't forge a heading, a list item, or a link in `llms.txt` or `SKILL.md` — worth knowing if your descriptions come from user input.
 
 ### Whole-document filters
 
