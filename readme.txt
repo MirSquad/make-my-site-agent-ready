@@ -1,10 +1,10 @@
 === Make My Site Agent-Ready ===
 Contributors: illuminea
 Tags: markdown, llm, ai, llms-txt, agents
-Requires at least: 6.0
+Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.15.0
+Stable tag: 1.17.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -34,7 +34,7 @@ Every feature below can be switched off individually under Settings > Agent-Read
 * **YAML frontmatter** — Title, date, author, URL, excerpt, categories, and tags
 * **Pre-generated** — Markdown is generated when posts are saved, so `.md` requests are instant
 * **Discoverable** — Adds `<link rel="alternate" type="text/markdown">` to page headers
-* **Lightweight** — No custom database tables, no cron jobs, no frontend JavaScript
+* **Lightweight** — No cron jobs, no frontend JavaScript. The optional agent request log is the only feature that adds a database table, and only once you switch it on
 
 **How it works:**
 
@@ -105,6 +105,21 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.17.0 - 2026-08-23 =
+* New: A "Recent Agent Requests" dashboard widget showing the 20 most recent entries — agent, what it fetched, and how long ago — with a link to the full log. Hide it like any dashboard widget, from Screen Options.
+
+= 1.16.1 - 2026-08-23 =
+* Fix: Entries carried over from the previous version's log could be imported twice, so every migrated row appeared as a duplicate pair. Two requests arriving during the same upgrade each read the old option before either had deleted it, and both wrote its contents into the new table. The migration is now claimed atomically, so exactly one request can perform it however many arrive at once. If you already see duplicates, use "Clear log" once — nothing is imported again.
+
+= 1.16.0 - 2026-08-23 =
+* New: The agent request log has its own screen at Settings > Agent Log, with pagination, a "Clear log" button, and a setting for how many entries to keep. The default is unlimited.
+* Change: The log now stores entries in its own database table instead of an option. Keeping an unlimited log in an option meant every recorded request read and rewrote the entire history — about 63KB of read and write per request once 200 entries had built up, and growing without limit from there. A table appends at the same cost no matter how large the log gets, and lets the screen page through it. Existing entries are migrated automatically on update, and the table is dropped on uninstall.
+* Note: this makes the agent log the one feature that adds a database table, and only once you switch it on. The readme no longer claims the plugin adds none.
+* Change: Minimum WordPress version is now 6.2 (was 6.0), for `$wpdb->prepare()`'s `%i` identifier placeholder — it lets the log's table name be passed through prepare() like any other value instead of interpolated into the query. WordPress 6.2 was released in April 2023.
+
+= 1.15.1 - 2026-08-21 =
+* Fix: "Visit plugin site" no longer appears twice on the Plugins screen. WordPress core already adds that link for any plugin that sets a Plugin URI header and is not installed from WordPress.org, and the plugin was appending a second, identical one. Core's link is kept; the filter that added the duplicate is removed.
 
 = 1.15.0 - 2026-08-19 =
 * Removed: Markdown by content negotiation, added in 1.13.0. Serving markdown from the canonical URL depends on `Vary: Accept` being honoured, and Cloudflare does not include `Accept` in its cache key — so a markdown response cached for a URL was handed to the next visitor who opened it in a browser, as a file download instead of the page. Marking the response uncacheable did not help on the host tested, because the host rewrote the `Cache-Control` header on its way out. A plugin at the origin cannot guarantee either condition, and the failure lands on human visitors, so the feature has been withdrawn rather than shipped with a warning.

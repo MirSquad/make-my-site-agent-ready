@@ -125,7 +125,7 @@ class MMSAR_Admin {
 			),
 			'agent_log'            => array(
 				__( 'Agent request log', 'make-my-site-agent-ready' ),
-				__( 'Records which agents fetch the files above, and what they asked for. Entries are listed further down this page, and also written to the Activity Log plugin when it is available. Nothing is recorded on a normal page view — only when one of these agent-facing files is actually served. Off by default.', 'make-my-site-agent-ready' ),
+				__( 'Records which agents fetch the files above, and what they asked for. Entries appear on the Agent Log screen under Settings, which has its own retention setting, and are also copied to the Activity Log plugin when it is available. Nothing is recorded on a normal page view — only when one of these agent-facing files is actually served. Off by default.', 'make-my-site-agent-ready' ),
 			),
 			'agent_skills'         => array(
 				__( 'Agent Skills discovery', 'make-my-site-agent-ready' ),
@@ -183,6 +183,22 @@ class MMSAR_Admin {
 	}
 
 	/**
+	 * Features whose own admin screen lives elsewhere in wp-admin, and the label for the link.
+	 *
+	 * Separate from get_feature_urls(), which lists public URLs on the front end. This one is
+	 * always shown, on or off — someone switching the log on wants to know where to read it, and
+	 * someone switching it off may still want the entries already collected.
+	 */
+	public static function get_feature_admin_links() {
+		return array(
+			'agent_log' => array(
+				admin_url( 'options-general.php?page=' . MMSAR_Agent_Log_Page::SLUG ),
+				__( 'View the log', 'make-my-site-agent-ready' ),
+			),
+		);
+	}
+
+	/**
 	 * Features that also have a settings section further down the page, and the anchor id that jumps
 	 * to it (set as a before_section wrapper in register_settings). Lets a toggle say "there's more to
 	 * configure below" without the user having to scroll and hunt for the matching section.
@@ -201,8 +217,9 @@ class MMSAR_Admin {
 	 * @return void
 	 */
 	public static function render_features_field() {
-		$urls    = self::get_feature_urls();
-		$anchors = self::get_feature_section_anchors();
+		$urls        = self::get_feature_urls();
+		$anchors     = self::get_feature_section_anchors();
+		$admin_links = self::get_feature_admin_links();
 
 		foreach ( self::get_feature_labels() as $key => $labels ) {
 			list( $label, $description ) = $labels;
@@ -221,6 +238,11 @@ class MMSAR_Admin {
 				$view_url = home_url( $urls[ $key ] );
 				$links[]  = '<a href="' . esc_url( $view_url ) . '" target="_blank" rel="noopener">'
 					. esc_html( $urls[ $key ] ) . ' <span aria-hidden="true">&#8599;</span></a>';
+			}
+			if ( isset( $admin_links[ $key ] ) ) {
+				list( $admin_url, $admin_label ) = $admin_links[ $key ];
+				$links[]                         = '<a href="' . esc_url( $admin_url ) . '">'
+					. esc_html( $admin_label ) . ' <span aria-hidden="true">&#8594;</span></a>';
 			}
 			if ( isset( $anchors[ $key ] ) ) {
 				$links[] = '<a href="#' . esc_attr( $anchors[ $key ] ) . '">'
@@ -480,48 +502,20 @@ class MMSAR_Admin {
 	 * @return void
 	 */
 	public static function render_agent_log_section() {
-		$entries  = MMSAR_Agent_Log::get_entries();
-		$mirrored = MMSAR_Agent_Log::activity_log_available();
+		$total = MMSAR_Agent_Log::count_entries();
 
 		echo '<p>';
-		esc_html_e( 'Every request an agent makes to the files above is recorded here. The same agent, file and IP is recorded at most once every five minutes, so a crawler looping on one URL cannot fill the list, and only the most recent 200 entries are kept.', 'make-my-site-agent-ready' );
+		printf(
+			/* translators: 1: number of recorded entries, 2: link to the Agent Log screen */
+			esc_html__( 'Requests agents make to the files above are recorded. %1$s so far — they are listed on the %2$s screen, which has its own retention setting.', 'make-my-site-agent-ready' ),
+			'<strong>' . esc_html( number_format_i18n( $total ) ) . '</strong>',
+			'<a href="' . esc_url( admin_url( 'options-general.php?page=' . MMSAR_Agent_Log_Page::SLUG ) ) . '">' . esc_html__( 'Agent Log', 'make-my-site-agent-ready' ) . '</a>'
+		);
 		echo '</p>';
 
 		echo '<p class="description">';
-		if ( $mirrored ) {
-			printf(
-				/* translators: %s: link to the Activity Log admin screen */
-				esc_html__( 'Entries are also being copied to %s under the type "Agent-Ready".', 'make-my-site-agent-ready' ),
-				'<a href="' . esc_url( admin_url( 'admin.php?page=activity_log_page' ) ) . '">' . esc_html__( 'Activity Log', 'make-my-site-agent-ready' ) . '</a>'
-			);
-		} else {
-			esc_html_e( 'The Activity Log plugin is not available, so entries are kept here only. Note that a plugin can be active in wp-admin and still not be loaded on the front-end requests that agents make, so this list is the reliable record either way.', 'make-my-site-agent-ready' );
-		}
+		esc_html_e( 'The same agent, file and IP is recorded at most once every five minutes, so a crawler looping on one URL cannot flood the log. Nothing is recorded on an ordinary page view unless the option below is ticked.', 'make-my-site-agent-ready' );
 		echo '</p>';
-
-		if ( empty( $entries ) ) {
-			echo '<p><em>' . esc_html__( 'Nothing recorded yet. Agent traffic is intermittent — leave this on and check back.', 'make-my-site-agent-ready' ) . '</em></p>';
-			return;
-		}
-
-		echo '<table class="widefat striped" style="max-width:900px;"><thead><tr>';
-		echo '<th>' . esc_html__( 'When', 'make-my-site-agent-ready' ) . '</th>';
-		echo '<th>' . esc_html__( 'Agent', 'make-my-site-agent-ready' ) . '</th>';
-		echo '<th>' . esc_html__( 'Requested', 'make-my-site-agent-ready' ) . '</th>';
-		echo '<th>' . esc_html__( 'IP', 'make-my-site-agent-ready' ) . '</th>';
-		echo '</tr></thead><tbody>';
-
-		foreach ( $entries as $entry ) {
-			$when = isset( $entry['time'] ) ? (int) $entry['time'] : 0;
-			echo '<tr>';
-			echo '<td>' . esc_html( $when ? wp_date( 'Y-m-d H:i', $when ) : '—' ) . '</td>';
-			echo '<td>' . esc_html( isset( $entry['agent'] ) ? $entry['agent'] : '—' ) . '</td>';
-			echo '<td>' . esc_html( isset( $entry['surface'] ) ? $entry['surface'] : '—' ) . '</td>';
-			echo '<td><code>' . esc_html( isset( $entry['ip'] ) ? $entry['ip'] : '' ) . '</code></td>';
-			echo '</tr>';
-		}
-
-		echo '</tbody></table>';
 	}
 
 	/**

@@ -2,9 +2,6 @@
 /**
  * Agent request log — records which agents fetch the surfaces this plugin publishes.
  *
- * Writes into the Activity Log plugin when it is active, so agent traffic appears alongside the
- * rest of the site's activity rather than in a separate place nobody opens.
- *
  * @package Make_My_Site_Agent_Ready
  */
 
@@ -20,30 +17,56 @@ class MMSAR_Agent_Log {
 	/**
 	 * How long the same agent, surface and IP is suppressed for, in seconds.
 	 *
-	 * A crawler can hit one URL repeatedly; the question this log answers is "which agents fetch
-	 * what", not "how many times". Activity Log de-duplicates only within the same second, which is
-	 * not enough on its own.
+	 * The question this log answers is "which agents fetch what", not "how many times". Without a
+	 * throttle a single crawler looping on one URL would drown out everything else.
 	 */
 	const THROTTLE = 300;
 
 	/**
-	 * Option holding the plugin's own copy of the log, and how many entries it keeps.
-	 *
-	 * The log lives here rather than only in the Activity Log plugin because that plugin's API is
-	 * not always loaded on front-end requests — on one live host it is available in wp-admin and
-	 * absent when a visitor (or an agent) hits the site, so every entry was silently dropped at the
-	 * point it mattered. Owning the data means the log works regardless, and can be shown on the
-	 * screen where the setting lives. A capped option rather than a table keeps the plugin's
-	 * promise of adding no database tables.
+	 * Schema version. Bump to trigger dbDelta on the next load.
 	 */
-	const OPTION      = 'mmsar_agent_log';
-	const MAX_ENTRIES = 200;
+	const DB_VERSION = 1;
 
 	/**
-	 * User-agent fragments that identify a known agent or AI crawler, matched case-insensitively.
+	 * Option holding the installed schema version.
+	 */
+	const DB_VERSION_OPTION = 'mmsar_agent_log_db_version';
+
+	/**
+	 * Option holding the retention limit. 0 means keep everything.
+	 */
+	const LIMIT_OPTION = 'mmsar_agent_log_limit';
+
+	/**
+	 * Option the log used before 1.16.0, when entries lived in a capped array.
+	 */
+	const LEGACY_OPTION = 'mmsar_agent_log';
+
+	/**
+	 * Option used to claim the one-time migration.
 	 *
-	 * Used only for the optional logging of ordinary HTML page views. The plugin's own endpoints do
-	 * not consult this list — anything fetching those is agent traffic by definition.
+	 * Created with add_option(), which is an INSERT against a unique index, so exactly one caller
+	 * can succeed. That
+	 * gives a lock that holds across concurrent requests, which a read-then-write guard does
+	 * not: two requests arriving during the same upgrade both read the legacy option before either
+	 * deleted it, and both wrote its contents into the table. Every migrated entry appeared twice.
+	 */
+	const MIGRATED_FLAG = 'mmsar_agent_log_migrated';
+
+	/**
+	 * How often pruning runs, as one prune per N inserts.
+	 *
+	 * Trimming on every insert would add a COUNT and a DELETE to requests that are already doing
+	 * the useful work. The log is allowed to overshoot its limit by up to this many rows between
+	 * prunes, which nobody can observe and which costs one extra row of storage each.
+	 */
+	const PRUNE_EVERY = 50;
+
+	/**
+	 * User-agent fragments identifying a known agent or AI crawler, matched case-insensitively.
+	 *
+	 * Used only when logging ordinary page views. The plugin's own endpoints do not consult this
+	 * list — anything fetching those is agent traffic by definition.
 	 */
 	const AGENTS = array(
 		'ClaudeBot',
@@ -75,16 +98,104 @@ class MMSAR_Agent_Log {
 	 * @return void
 	 */
 	public static function init() {
+		add_action( 'plugins_loaded', array( __CLASS__, 'maybe_install' ) );
+
 		// Ordinary page views are only inspected when the owner opts in, and even then the work is
-		// one regex against the user-agent. Everything else this class records is triggered from a
-		// serve point the plugin already owns, so a normal HTML request costs nothing at all.
+		// one pass over the user-agent. Everything else is triggered from a serve point the plugin
+		// already owns, so a normal HTML request costs nothing at all.
 		if ( '1' === get_option( 'mmsar_agent_log_pages', '' ) ) {
 			add_action( 'template_redirect', array( __CLASS__, 'maybe_record_page_view' ), 20 );
 		}
 	}
 
 	/**
-	 * Whether logging is switched on and there is somewhere to write to.
+	 * The log table name.
+	 *
+	 * @return string
+	 */
+	public static function table() {
+		global $wpdb;
+		return $wpdb->prefix . 'mmsar_agent_log';
+	}
+
+	/**
+	 * Creates or upgrades the table when the stored schema version is behind.
+	 *
+	 * Runs from an option read on every load, which is a cached lookup, rather than only on
+	 * activation — updating a plugin's files in place does not re-fire the activation hook, so a
+	 * schema added in an update would otherwise never be created on an existing install.
+	 *
+	 * @return void
+	 */
+	public static function maybe_install() {
+		if ( (int) get_option( self::DB_VERSION_OPTION, 0 ) === self::DB_VERSION ) {
+			return;
+		}
+
+		global $wpdb;
+		$table   = self::table();
+		$collate = $wpdb->get_charset_collate();
+
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		// dbDelta is whitespace-sensitive: two spaces after PRIMARY KEY, one space around types.
+		dbDelta(
+			"CREATE TABLE {$table} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			logged_at datetime NOT NULL,
+			surface varchar(100) NOT NULL DEFAULT '',
+			agent varchar(120) NOT NULL DEFAULT '',
+			ip varchar(45) NOT NULL DEFAULT '',
+			PRIMARY KEY  (id),
+			KEY logged_at (logged_at)
+			) {$collate};"
+		);
+
+		update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
+		self::migrate_legacy_entries();
+	}
+
+	/**
+	 * Moves entries from the pre-1.16.0 option into the table, then removes the option.
+	 *
+	 * @return void
+	 */
+	private static function migrate_legacy_entries() {
+		// Claim the migration before reading anything. Whichever request creates this option owns
+		// the job; any other request racing it here stops now rather than importing the same rows
+		// a second time.
+		if ( ! add_option( self::MIGRATED_FLAG, time(), '', false ) ) {
+			return;
+		}
+
+		$legacy = get_option( self::LEGACY_OPTION, array() );
+		if ( ! is_array( $legacy ) || empty( $legacy ) ) {
+			delete_option( self::LEGACY_OPTION );
+			return;
+		}
+
+		global $wpdb;
+		// Oldest first, so the table's ascending ids match the order the requests happened in.
+		foreach ( array_reverse( $legacy ) as $entry ) {
+			if ( ! is_array( $entry ) ) {
+				continue;
+			}
+			$wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- One-time migration into this plugin's own table.
+				self::table(),
+				array(
+					'logged_at' => isset( $entry['time'] ) ? gmdate( 'Y-m-d H:i:s', (int) $entry['time'] ) : current_time( 'mysql', true ),
+					'surface'   => isset( $entry['surface'] ) ? (string) $entry['surface'] : '',
+					'agent'     => isset( $entry['agent'] ) ? (string) $entry['agent'] : '',
+					'ip'        => isset( $entry['ip'] ) ? (string) $entry['ip'] : '',
+				),
+				array( '%s', '%s', '%s', '%s' )
+			);
+		}
+
+		delete_option( self::LEGACY_OPTION );
+	}
+
+	/**
+	 * Whether logging is switched on.
 	 *
 	 * @return bool
 	 */
@@ -93,33 +204,91 @@ class MMSAR_Agent_Log {
 	}
 
 	/**
-	 * The recorded entries, newest first.
+	 * The retention limit. 0 means keep everything.
 	 *
-	 * @return array[] Log entries.
+	 * @return int
 	 */
-	public static function get_entries() {
-		$entries = get_option( self::OPTION, array() );
-		return is_array( $entries ) ? $entries : array();
+	public static function get_limit() {
+		return absint( get_option( self::LIMIT_OPTION, 0 ) );
 	}
 
 	/**
-	 * Whether the Activity Log plugin's API is reachable from the current request.
+	 * Total number of recorded entries.
 	 *
-	 * Reported on the settings screen, because "reachable in wp-admin" and "reachable on the front
-	 * end" are different questions and only the second one matters for recording.
-	 *
-	 * @return bool
+	 * @return int
 	 */
-	public static function activity_log_available() {
-		return function_exists( 'aal_insert_log' );
+	public static function count_entries() {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reading this plugin's own table; a cached count would show a stale log.
+		return (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i', self::table() ) );
+	}
+
+	/**
+	 * One page of entries, newest first.
+	 *
+	 * @param int $per_page Rows per page.
+	 * @param int $offset   Rows to skip.
+	 * @return array[] Entries as associative arrays.
+	 */
+	public static function get_entries( $per_page = 50, $offset = 0 ) {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would show a stale log.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT logged_at, surface, agent, ip FROM %i ORDER BY id DESC LIMIT %d OFFSET %d',
+				self::table(),
+				absint( $per_page ),
+				absint( $offset )
+			),
+			ARRAY_A
+		);
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * Deletes every entry.
+	 *
+	 * @return void
+	 */
+	public static function clear() {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Emptying this plugin's own table on explicit request.
+		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i', self::table() ) );
+	}
+
+	/**
+	 * Drops rows beyond the retention limit, oldest first.
+	 *
+	 * @return void
+	 */
+	public static function prune() {
+		$limit = self::get_limit();
+		if ( $limit < 1 ) {
+			return;
+		}
+
+		global $wpdb;
+		// %i is the identifier placeholder, so the table name goes through prepare() like any other
+		// value rather than being interpolated into the query string.
+		$table = self::table();
+
+		// The id of the newest row already outside the limit. Everything at or below it goes.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would prune against a stale count.
+		$cutoff = $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM %i ORDER BY id DESC LIMIT 1 OFFSET %d', $table, $limit ) );
+		if ( ! $cutoff ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
+		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE id <= %d', $table, (int) $cutoff ) );
 	}
 
 	/**
 	 * Records one agent request.
 	 *
-	 * Called from the plugin's serve points, which is why there is no user-agent test here: a
-	 * request for llms.txt or a negotiated markdown response is agent traffic whatever it claims
-	 * to be, and filtering on user-agent would hide exactly the clients worth knowing about.
+	 * Called from the plugin's serve points, which is why there is no user-agent test: a request
+	 * for llms.txt or a .md URL is agent traffic whatever it calls itself, and filtering on
+	 * user-agent would hide exactly the clients worth knowing about.
 	 *
 	 * @param string $surface Human-readable name of what was served, e.g. 'llms.txt'.
 	 * @return void
@@ -132,60 +301,76 @@ class MMSAR_Agent_Log {
 		$agent = self::agent_label();
 		$ip    = self::client_ip();
 
-		// Throttle before touching the database. The transient is only read for requests already
-		// known to be agent-facing, so this never runs on an ordinary page view.
+		// Throttle before touching the database. Only reached by requests already known to be
+		// agent-facing, so this never runs on an ordinary page view.
 		$key = 'mmsar_al_' . md5( $agent . '|' . $surface . '|' . $ip );
 		if ( get_transient( $key ) ) {
 			return;
 		}
 		set_transient( $key, 1, self::THROTTLE );
 
-		// The plugin's own store is written first and unconditionally, so a log entry never depends
-		// on another plugin being loaded for this request.
-		$entries = self::get_entries();
-		array_unshift(
-			$entries,
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Appending to this plugin's own table.
+		$inserted = $wpdb->insert(
+			self::table(),
 			array(
-				'time'    => time(),
-				'surface' => $surface,
-				'agent'   => $agent,
-				'ip'      => $ip,
+				'logged_at' => current_time( 'mysql', true ),
+				'surface'   => mb_substr( $surface, 0, 100 ),
+				'agent'     => mb_substr( $agent, 0, 120 ),
+				'ip'        => $ip,
+			),
+			array( '%s', '%s', '%s', '%s' )
+		);
+
+		// Prune every so often rather than on every insert: an append is the cost this request
+		// should pay, and a log a few rows over its limit between prunes is not observable.
+		if ( $inserted && 0 === ( (int) $wpdb->insert_id % self::PRUNE_EVERY ) ) {
+			self::prune();
+		}
+
+		self::mirror_to_activity_log( $surface, $agent, $ip );
+	}
+
+	/**
+	 * Copies an entry into the Activity Log plugin when its API is present.
+	 *
+	 * Database errors are suppressed for the duration of the call, and only for it. That plugin
+	 * owns and upgrades its table on its own schedule; a site whose schema has not caught up
+	 * produces an error on every insert, which with WP_DEBUG_DISPLAY on would print into a response
+	 * being served. The entry is already stored above, so the mirror must never affect the page.
+	 *
+	 * @param string $surface What was served.
+	 * @param string $agent   Requesting agent.
+	 * @param string $ip      Client IP.
+	 * @return void
+	 */
+	private static function mirror_to_activity_log( $surface, $agent, $ip ) {
+		if ( ! function_exists( 'aal_insert_log' ) ) {
+			return;
+		}
+
+		global $wpdb;
+		$suppressed = $wpdb->suppress_errors( true );
+		aal_insert_log(
+			array(
+				'action'         => 'requested',
+				'object_type'    => 'Agent-Ready',
+				'object_subtype' => $surface,
+				'object_name'    => $agent,
+				'object_id'      => 0,
+				'user_id'        => 0,
+				'hist_ip'        => $ip,
 			)
 		);
-		update_option( self::OPTION, array_slice( $entries, 0, self::MAX_ENTRIES ), false );
-
-		// Mirrored into Activity Log when its API is present, so sites where it loads on the front
-		// end get agent traffic alongside everything else. Absence is not an error.
-		//
-		// Database errors are suppressed for the duration of the call, and only for it. That plugin
-		// writes to a table it owns and upgrades on its own schedule; a clone whose schema has not
-		// caught up produces an "Unknown column" error on every insert, which with WP_DEBUG_DISPLAY
-		// on would print into a response an agent or visitor is reading. The mirror is a convenience
-		// — the entry is already safely stored above — so it must never be able to affect the page.
-		if ( function_exists( 'aal_insert_log' ) ) {
-			global $wpdb;
-			$suppressed = $wpdb->suppress_errors( true );
-			aal_insert_log(
-				array(
-					'action'         => 'requested',
-					'object_type'    => 'Agent-Ready',
-					'object_subtype' => $surface,
-					'object_name'    => $agent,
-					'object_id'      => 0,
-					'user_id'        => 0,
-					'hist_ip'        => $ip,
-				)
-			);
-			$wpdb->suppress_errors( $suppressed );
-		}
+		$wpdb->suppress_errors( $suppressed );
 	}
 
 	/**
 	 * Records a normal HTML page view, but only when the user-agent looks like a known agent.
 	 *
-	 * This is the optional half. It exists to supply the denominator: without it the log shows only
-	 * the agents that asked for markdown, and "which agents ask for markdown" cannot be answered
-	 * without also knowing which ones came and did not.
+	 * This supplies the denominator: without it the log shows only the agents that asked for an
+	 * agent-facing file, and "which agents ask for markdown" cannot be answered without also
+	 * knowing which ones came and did not.
 	 *
 	 * @return void
 	 */
@@ -210,15 +395,12 @@ class MMSAR_Agent_Log {
 			return;
 		}
 
-		// Record what it asked for as well as who it was — an agent taking HTML while the site
-		// offers markdown is the interesting case, and it is invisible if only the format is logged.
-		$wants = self::accept_summary();
-		self::record( 'HTML page view (' . $wants . ')' );
+		self::record( 'HTML page view (' . self::accept_summary() . ')' );
 	}
 
 	/**
 	 * A short label for the requesting agent: the matched agent name where recognised, otherwise a
-	 * trimmed user-agent so unknown clients are still identifiable.
+	 * trimmed user-agent so unknown clients stay identifiable.
 	 *
 	 * @return string
 	 */
@@ -236,8 +418,7 @@ class MMSAR_Agent_Log {
 	}
 
 	/**
-	 * Whether the request asked for markdown, HTML, or expressed no preference. This is the field
-	 * the whole log exists to collect.
+	 * Whether the request asked for markdown, HTML, or expressed no preference.
 	 *
 	 * @return string
 	 */
@@ -252,7 +433,7 @@ class MMSAR_Agent_Log {
 		if ( false !== stripos( $accept, 'text/html' ) ) {
 			return 'asked for HTML';
 		}
-		return 'Accept: ' . mb_substr( $accept, 0, 40 );
+		return 'Accept: ' . mb_substr( $accept, 0, 30 );
 	}
 
 	/**
@@ -265,8 +446,8 @@ class MMSAR_Agent_Log {
 	}
 
 	/**
-	 * Client IP, preferring Cloudflare's header when present — behind a CDN, REMOTE_ADDR is the
-	 * edge, so every agent would otherwise share one address and the throttle would collapse them.
+	 * Client IP, preferring Cloudflare's header — behind a CDN, REMOTE_ADDR is the edge, so every
+	 * agent would otherwise share one address and the throttle would collapse them together.
 	 *
 	 * @return string
 	 */

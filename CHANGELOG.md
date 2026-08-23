@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.17.0 — 2026-08-23
+
+### New
+
+- A **Recent Agent Requests** dashboard widget listing the 20 most recent entries, with the agent, what it fetched and elapsed time, plus a link to the full log. Elapsed time rather than a timestamp because the question the dashboard answers is whether anything is hitting the site now; the exact time is one click away. No setting controls the widget — WordPress already lets each user hide a dashboard widget from Screen Options, and a second switch would mean two places to check when it is not showing. Says so plainly when the log is switched off, rather than looking broken.
+
+## 1.16.1 — 2026-08-23
+
+### Fixed
+
+- The one-time import of entries from the pre-1.16.0 option could run twice, duplicating every migrated row. The guard was a read-then-write check on a version option, which does not hold across concurrent requests: two requests arriving during the same upgrade both read the legacy option before either deleted it, and both inserted its contents. Observed on a live site immediately after updating — ten recorded requests appeared as twenty rows. The migration is now claimed with `add_option()`, which is an INSERT against a unique index and so can only succeed for one caller no matter how many arrive together. Sequential re-runs were already safe; this closes the concurrent case. Sites already showing duplicates can clear the log once — the import cannot repeat.
+
+## 1.16.0 — 2026-08-23
+
+### New
+
+- The agent request log has a screen of its own at **Settings > Agent Log**: paginated at 50 entries a page, with a **Clear log** button and a retention setting. A settings screen is for configuration and a log is data that grows, so mixing them meant the log pushed the settings off the page and had nowhere to put pagination or a clear button. Linked from the feature toggle and from the settings section, both of which now also show the current entry count.
+- Retention is configurable, defaulting to **unlimited**. Set a number and the oldest entries are dropped once the log passes it. Trimming runs once every 50 inserts rather than on every request, so the count can sit slightly above the limit between trims — an append is the cost the request should pay, and a handful of extra rows is not observable.
+
+### Changed
+
+- Entries are stored in a dedicated table rather than a serialized option. The option was viable only because the log was capped at 200; with unlimited retention it becomes pathological, since every recorded request reads and rewrites the whole history — roughly 63KB of I/O per request at 200 entries, scaling linearly with the log. An `INSERT` costs the same at any size, and an indexed table is what makes paging through the log possible. Entries from the option are migrated on upgrade and the option is removed; the table is created by `dbDelta` on load rather than on activation, since updating a plugin's files in place never re-fires the activation hook.
+- The plugin no longer claims to add no database tables. It adds exactly one, only when the agent log is switched on, and drops it on uninstall.
+- Minimum WordPress version raised from 6.0 to 6.2, for the `%i` identifier placeholder in `$wpdb->prepare()`. It lets the table name be prepared like any other value rather than interpolated, which is both safer and what the coding standards want; carrying a dual-path fallback for a 2023 release to avoid it was not worth the duplicated queries.
+
+## 1.15.1 — 2026-08-21
+
+### Fixed
+
+- "Visit plugin site" appeared twice in the plugin's row on the Plugins screen. WordPress core adds that link itself whenever a plugin sets a `Plugin URI` header and has no WordPress.org slug — the two are an if/else in `WP_Plugins_List_Table`, so a plugin distributed outside the directory always gets it. This plugin was appending a second, identical link on top of core's. The whole `plugin_row_meta` filter is removed rather than patched: the only other thing it did was strip a `plugin-install.php` "View details" link, which is the branch core takes *instead* of the Plugin URI one and so could never have been present alongside it. Core's link is left to stand.
+
 ## 1.15.0 — 2026-08-19
 
 ### Removed

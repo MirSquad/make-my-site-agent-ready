@@ -3,14 +3,14 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.15.0
+ * Version:           1.17.0
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       make-my-site-agent-ready
  * Domain Path:       /languages
- * Requires at least: 6.0
+ * Requires at least: 6.2
  * Requires PHP:      7.4
  *
  * @package Make_My_Site_Agent_Ready
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.15.0' );
+define( 'MMSAR_VERSION', '1.17.0' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -31,6 +31,8 @@ require_once MMSAR_PLUGIN_DIR . 'vendor/autoload.php';
 // against it at any point in the load order.
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-registry.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-log.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-log-page.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-log-widget.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-converter.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-server.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-llms-txt.php';
@@ -294,6 +296,8 @@ if ( mmsar_feature_enabled( 'agent_skills' ) ) {
 // each one individually inside.
 MMSAR_Endpoints::init();
 MMSAR_Agent_Log::init();
+MMSAR_Agent_Log_Page::init();
+MMSAR_Agent_Log_Widget::init();
 MMSAR_Admin::init();
 
 add_action( 'save_post', 'mmsar_on_save_post', 20, 2 );
@@ -693,27 +697,6 @@ add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), 'mmsar_action_
 function mmsar_action_links( $links ) {
 	$settings_link = '<a href="' . esc_url( admin_url( 'options-general.php?page=make-my-site-agent-ready' ) ) . '">' . esc_html__( 'Settings', 'make-my-site-agent-ready' ) . '</a>';
 	array_unshift( $links, $settings_link );
-	return $links;
-}
-
-add_filter( 'plugin_row_meta', 'mmsar_plugin_row_meta', 10, 2 );
-/**
- * Mmsar plugin row meta.
- *
- * @param mixed $links Links.
- * @param mixed $file File.
- * @return mixed Result.
- */
-function mmsar_plugin_row_meta( $links, $file ) {
-	if ( plugin_basename( MMSAR_PLUGIN_FILE ) !== $file ) {
-		return $links;
-	}
-	foreach ( $links as $key => $link ) {
-		if ( strpos( $link, 'plugin-install.php' ) !== false ) {
-			unset( $links[ $key ] );
-		}
-	}
-	$links[] = '<a href="' . esc_url( 'https://miriamschwab.me/plugins/make-my-site-agent-ready' ) . '" target="_blank">' . esc_html__( 'Visit plugin site', 'make-my-site-agent-ready' ) . '</a>';
 	return $links;
 }
 

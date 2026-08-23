@@ -20,6 +20,9 @@ delete_option( 'mmsar_structured_data' );
 delete_option( 'mmsar_features' );
 delete_option( 'mmsar_endpoints' );
 delete_option( 'mmsar_agent_log' );
+delete_option( 'mmsar_agent_log_limit' );
+delete_option( 'mmsar_agent_log_db_version' );
+delete_option( 'mmsar_agent_log_migrated' );
 delete_option( 'mmsar_agent_log_pages' );
 delete_transient( 'llmmd_llms_txt' );
 delete_transient( 'mmsar_llms_full_txt' );
@@ -28,3 +31,7 @@ delete_transient( 'mmsar_flush_needed' );
 global $wpdb;
 // Uninstall cleanup: remove all cached markdown post meta. No caching applies to a one-time delete.
 $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_llmmd_content' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
+// The agent log's own table.
+// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Dropping this plugin's own table on uninstall.
+$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $wpdb->prefix . 'mmsar_agent_log' ) );
