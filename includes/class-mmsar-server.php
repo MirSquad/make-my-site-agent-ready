@@ -24,6 +24,13 @@ class MMSAR_Server {
 		add_filter( 'query_vars', array( __CLASS__, 'add_query_vars' ) );
 		add_action( 'template_redirect', array( __CLASS__, 'serve_markdown' ) );
 		add_filter( 'redirect_canonical', array( __CLASS__, 'prevent_redirect' ) );
+
+		// Content negotiation is a separate opt-in on top of the .md URLs, because it changes what
+		// an existing URL returns rather than adding a new one. Registered only when switched on,
+		// so a site that leaves it off never runs any of it.
+		if ( mmsar_feature_enabled( 'markdown_negotiation' ) ) {
+			add_action( 'template_redirect', array( __CLASS__, 'maybe_serve_negotiated' ), 1 );
+		}
 	}
 
 	/**
@@ -172,5 +179,138 @@ class MMSAR_Server {
 		}
 
 		return 0;
+	}
+
+	// -------------------------------------------------------------------------
+	// Content negotiation on the canonical URL
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Serves markdown from the canonical post URL when the request asks for it via `Accept`.
+	 *
+	 * This is the surface agents actually reach. A crawler or fetch tool requesting a page sends
+	 * one request to the canonical URL; the `.md` mirror only helps something that already knows
+	 * the mirror exists. Anthropic's WebFetch, for one, sends an `Accept` header preferring
+	 * Markdown precisely so a server can answer in Markdown without a second round trip.
+	 *
+	 * What this method can and cannot guarantee is the whole story of this feature. It declares
+	 * `Vary: Accept` on both representations and marks the markdown one uncacheable, which is
+	 * exactly what the standards provide for; whether anything between here and the reader honors
+	 * either header is not observable from inside a request. It is observable from outside one,
+	 * which is what MMSAR_Negotiation_Check exists to do.
+	 *
+	 * @return void
+	 */
+	public static function maybe_serve_negotiated() {
+		if ( is_admin() || is_feed() || is_embed() || ! is_singular( mmsar_get_enabled_post_types() ) ) {
+			return;
+		}
+
+		$post = get_queried_object();
+		if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status || ! empty( $post->post_password ) ) {
+			return;
+		}
+
+		// The HTML representation has to advertise that it varies too, or a shared cache is entitled
+		// to serve a stored HTML copy to a Markdown-preferring request and vice versa. Sent on both
+		// branches, and before the decision, so it goes out either way.
+		header( 'Vary: Accept', false );
+
+		if ( ! self::prefers_markdown() ) {
+			return;
+		}
+
+		$markdown = get_post_meta( $post->ID, '_llmmd_content', true );
+		if ( empty( $markdown ) ) {
+			$markdown = MMSAR_Converter::convert_post( $post->ID );
+			if ( ! empty( $markdown ) ) {
+				update_post_meta( $post->ID, '_llmmd_content', $markdown );
+			}
+		}
+		// Nothing to serve is not an error here: fall through and let WordPress render the page
+		// normally, rather than turning a working HTML request into a 404.
+		if ( empty( $markdown ) ) {
+			return;
+		}
+
+		// The self-check's own requests are traffic this site made to itself. Recording them would
+		// put a row in the owner's log for every check they run, attributed to their own server.
+		if ( ! self::is_self_check_request() ) {
+			MMSAR_Agent_Log::record( 'Markdown (content negotiation)' );
+		}
+
+		// Ask that no shared cache store this representation. `Vary: Accept` is advisory, and a
+		// cache that ignores it hands a stored markdown response to the next visitor who asks for
+		// the same URL — a person gets a file download instead of the page. This header is the
+		// second line of defence against that, and it is a request, not a guarantee: at least one
+		// host has been observed rewriting it in transit, so what the origin sends is not
+		// necessarily what reaches the edge. The check screen reports what actually arrives.
+		header( 'Cache-Control: private, no-store, max-age=0' );
+		header( 'Content-Type: text/markdown; charset=UTF-8' );
+		header( 'X-Content-Type-Options: nosniff' );
+		header( 'Link: <' . esc_url( get_permalink( $post->ID ) ) . '>; rel="canonical"' );
+		status_header( 200 );
+
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw markdown as text/markdown, not HTML.
+		echo $markdown;
+		exit;
+	}
+
+	/**
+	 * Whether this request is one of the negotiation self-check's own probes.
+	 *
+	 * The check appends a query argument both as a cache-buster — it must never fill a shared
+	 * cache with a markdown copy of a URL real visitors use — and as a marker, so the response it
+	 * triggers can be kept out of the agent log.
+	 *
+	 * @return bool
+	 */
+	private static function is_self_check_request() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Front-end request marker, not a state change.
+		return isset( $_GET[ MMSAR_Negotiation_Check::ARG ] );
+	}
+
+	/**
+	 * Whether the request's `Accept` header prefers Markdown over HTML.
+	 *
+	 * Deliberately strict, because getting this wrong serves Markdown to a browser. Markdown must be
+	 * named explicitly and outrank HTML: a wildcard counts towards HTML but never towards Markdown,
+	 * so the browsers and bots that accept anything keep getting HTML, and a tie goes to HTML
+	 * because that is the representation a human reader expects.
+	 *
+	 * @return bool True when Markdown is explicitly preferred over HTML.
+	 */
+	private static function prefers_markdown() {
+		$header = isset( $_SERVER['HTTP_ACCEPT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_ACCEPT'] ) ) : '';
+		if ( '' === $header ) {
+			return false;
+		}
+
+		$markdown_q = -1.0;
+		$html_q     = -1.0;
+
+		foreach ( explode( ',', $header ) as $part ) {
+			$bits = explode( ';', $part );
+			$type = strtolower( trim( array_shift( $bits ) ) );
+			if ( '' === $type ) {
+				continue;
+			}
+
+			$q = 1.0;
+			foreach ( $bits as $param ) {
+				$param = strtolower( trim( $param ) );
+				if ( 0 === strpos( $param, 'q=' ) ) {
+					$q = (float) substr( $param, 2 );
+				}
+			}
+
+			if ( 'text/markdown' === $type || 'text/x-markdown' === $type ) {
+				$markdown_q = max( $markdown_q, $q );
+			} elseif ( 'text/html' === $type || 'text/*' === $type || '*/*' === $type ) {
+				$html_q = max( $html_q, $q );
+			}
+		}
+
+		return $markdown_q > 0 && $markdown_q > $html_q;
 	}
 }

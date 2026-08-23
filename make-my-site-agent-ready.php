@@ -3,7 +3,7 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.17.1
+ * Version:           1.18.1
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.17.1' );
+define( 'MMSAR_VERSION', '1.18.1' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -34,6 +34,7 @@ require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-log.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-log-page.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-log-widget.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-converter.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-negotiation-check.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-server.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-llms-txt.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-endpoints.php';
@@ -62,6 +63,11 @@ function mmsar_load_textdomain() {
 function mmsar_get_feature_keys() {
 	return array(
 		'markdown'             => true,
+		// Off by default, and the only feature whose failure mode lands on human readers rather
+		// than on agents: a cache that ignores `Vary: Accept` can serve the markdown copy to a
+		// visitor. Requires 'markdown' to be on, and has a self-check that switches it back off if
+		// that condition is actually observed. See MMSAR_Negotiation_Check.
+		'markdown_negotiation' => false,
 		'llms_txt'             => true,
 		'llms_full_txt'        => true,
 		'robots_txt'           => true,
@@ -203,7 +209,41 @@ function mmsar_check_version() {
 		// Updating a plugin's files in place does not re-fire register_activation_hook, so this
 		// is the only reliable way new endpoints start working without a manual permalink resave.
 		add_action( 'init', 'flush_rewrite_rules', 20 );
+		mmsar_reset_stale_negotiation_setting();
 	}
+}
+
+/**
+ * Discards any stored value for the content negotiation toggle left over from 1.13.0/1.13.1.
+ *
+ * That version shipped the same feature key, and a site that switched it on still has `'1'` sitting
+ * in the options table — the 1.15.0 removal took the key out of the code but never out of the
+ * database. Reinstating the key without this would silently switch the feature back on, on exactly
+ * the installs that once had it, with no check ever having run. Deleting the key rather than
+ * writing `'0'` returns it to its default, which is off, and leaves the toggle telling the truth.
+ *
+ * Runs on every version change, which is harmless: after the first pass there is nothing to delete,
+ * and a value written deliberately since is re-created the moment the settings screen is saved.
+ * Guarded on the option existing so it never runs an UPDATE it does not need to.
+ *
+ * @return void
+ */
+function mmsar_reset_stale_negotiation_setting() {
+	if ( get_option( 'mmsar_negotiation_reset_done' ) ) {
+		return;
+	}
+	// Claimed with add_option(), which is an INSERT against a unique index: the one guard that is
+	// atomic when two requests arrive during the same upgrade. A read-then-write check is not.
+	if ( ! add_option( 'mmsar_negotiation_reset_done', '1', '', false ) ) {
+		return;
+	}
+
+	$features = get_option( 'mmsar_features', array() );
+	if ( ! is_array( $features ) || ! array_key_exists( 'markdown_negotiation', $features ) ) {
+		return;
+	}
+	unset( $features['markdown_negotiation'] );
+	update_option( 'mmsar_features', $features );
 }
 
 /**
@@ -295,6 +335,7 @@ if ( mmsar_feature_enabled( 'agent_skills' ) ) {
 // Endpoints covers llms-full.txt, security.txt, api-catalog and the robots.txt rewrite, and gates
 // each one individually inside.
 MMSAR_Endpoints::init();
+MMSAR_Negotiation_Check::init();
 MMSAR_Agent_Log::init();
 MMSAR_Agent_Log_Page::init();
 MMSAR_Agent_Log_Widget::init();

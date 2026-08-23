@@ -99,6 +99,10 @@ class MMSAR_Admin {
 				__( 'Markdown URLs (.md)', 'make-my-site-agent-ready' ),
 				__( 'Serves a plain-markdown version of each post and page at its URL plus .md, and points agents at it via a <link> tag and Link header. Turning this off also disables the JSON-LD structured data below, which exists only to advertise these URLs.', 'make-my-site-agent-ready' ),
 			),
+			'markdown_negotiation' => array(
+				__( 'Markdown from the normal page URL', 'make-my-site-agent-ready' ),
+				__( 'Answers a request for an ordinary page with its markdown version when the request asks for markdown in its Accept header — which is how AI clients actually ask, rather than only at the .md address. Requires Markdown URLs above. Watch for one symptom: a visitor opens a page in a browser and gets a markdown file, or a download prompt, instead of the page. That means a cache between your site and your readers is ignoring the Vary: Accept header and handing out the markdown copy — Cloudflare is known to do this. Switch this off the moment you see it, and leave it off if your site sits behind a CDN you cannot configure. Whether that happens depends on infrastructure this plugin cannot see, so run the check below rather than taking its word for it. Off by default.', 'make-my-site-agent-ready' ),
+			),
 			'llms_txt'             => array(
 				__( 'llms.txt', 'make-my-site-agent-ready' ),
 				__( 'An index of your site at /llms.txt, so an agent can see what content exists in one request.', 'make-my-site-agent-ready' ),
@@ -146,6 +150,13 @@ class MMSAR_Admin {
 		// $input means "off" here — unlike mmsar_feature_enabled(), where missing means "never saved".
 		foreach ( array_keys( mmsar_get_feature_keys() ) as $key ) {
 			$out[ $key ] = ( isset( $input[ $key ] ) && '1' === $input[ $key ] ) ? '1' : '0';
+		}
+		// Switching content negotiation on schedules a self-check for the next request, because
+		// this is the one feature whose safety depends on infrastructure in front of WordPress.
+		// It cannot run here: the new value is not stored until this callback returns, so the
+		// feature would still be off when the probes went out.
+		if ( '1' === $out['markdown_negotiation'] && ! mmsar_feature_enabled( 'markdown_negotiation' ) ) {
+			MMSAR_Negotiation_Check::schedule();
 		}
 		// Enabling or disabling a feature adds or removes rewrite rules, which only take effect
 		// after a flush. Flagged through the shared helper so this path and the option hooks that
@@ -205,9 +216,10 @@ class MMSAR_Admin {
 	 */
 	public static function get_feature_section_anchors() {
 		return array(
-			'markdown'     => 'mmsar-section-markdown',
-			'robots_txt'   => 'mmsar-section-robots',
-			'security_txt' => 'mmsar-section-security',
+			'markdown'             => 'mmsar-section-markdown',
+			'markdown_negotiation' => 'mmsar-section-negotiation',
+			'robots_txt'           => 'mmsar-section-robots',
+			'security_txt'         => 'mmsar-section-security',
 		);
 	}
 
@@ -552,7 +564,13 @@ class MMSAR_Admin {
 			'mmsar_features',
 			__( 'Features', 'make-my-site-agent-ready' ),
 			array( __CLASS__, 'render_features_section' ),
-			'make-my-site-agent-ready'
+			'make-my-site-agent-ready',
+			// Anchor wrapper so sections further down can point back at the toggle that controls
+			// them — the negotiation section has no checkbox of its own and needs to say where it is.
+			array(
+				'before_section' => '<div id="mmsar-section-features">',
+				'after_section'  => '</div>',
+			)
 		);
 
 		add_settings_field(
@@ -635,6 +653,27 @@ class MMSAR_Admin {
 			array( __CLASS__, 'render_root_selector_field' ),
 			'make-my-site-agent-ready',
 			'mmsar_main'
+		);
+
+		// Content negotiation. No settings of its own — the section exists to hold the self-check,
+		// which is the part that makes the feature safe to offer at all.
+		add_settings_section(
+			'mmsar_negotiation',
+			__( 'Markdown Content Negotiation', 'make-my-site-agent-ready' ),
+			array( __CLASS__, 'render_negotiation_section' ),
+			'make-my-site-agent-ready',
+			array(
+				'before_section' => '<div id="mmsar-section-negotiation">',
+				'after_section'  => '</div>',
+			)
+		);
+
+		add_settings_field(
+			'mmsar_negotiation_check',
+			__( 'Check this site', 'make-my-site-agent-ready' ),
+			array( __CLASS__, 'render_negotiation_check_field' ),
+			'make-my-site-agent-ready',
+			'mmsar_negotiation'
 		);
 
 		// robots.txt settings.
@@ -1142,6 +1181,112 @@ class MMSAR_Admin {
 		$placeholder = MMSAR_Endpoints::default_security_txt();
 		echo '<textarea name="mmsar_security_txt" rows="6" class="large-text code" placeholder="' . esc_attr( $placeholder ) . '">' . esc_textarea( $value ) . '</textarea>';
 		echo '<p class="description">' . esc_html__( 'Optional. Leave this empty unless you need extra fields such as Encryption, Acknowledgments or Policy — the Security Contact above is enough for most sites. Anything entered here replaces the generated file entirely, including the Contact line, so it must contain both Contact and Expires.', 'make-my-site-agent-ready' ) . '</p>';
+	}
+
+	/**
+	 * Intro copy for the content negotiation section.
+	 *
+	 * @return void
+	 */
+	public static function render_negotiation_section() {
+		echo '<p>';
+		esc_html_e( 'When an AI client fetches one of your pages it usually asks for markdown in the same request, using the Accept header, rather than looking for a separate .md address. Switching this on answers that request with your markdown instead of the HTML page. It is what the Accept and Vary headers exist for, and on most sites it simply works.', 'make-my-site-agent-ready' );
+		echo '</p>';
+		echo '<p>';
+		esc_html_e( 'The risk is not in your site, it is in whatever caches it. A CDN that stores the markdown response without noticing it was asked for specifically will hand that copy to the next person who opens the page in a browser, who gets a file download instead of your site. This plugin asks caches not to store it, but cannot make them listen, and at least one host has been seen rewriting that instruction on the way out. So rather than promise, it measures.', 'make-my-site-agent-ready' );
+		echo '</p>';
+	}
+
+	/**
+	 * The self-check: what the last run found, and a button to run it again.
+	 *
+	 * @return void
+	 */
+	public static function render_negotiation_check_field() {
+		$result = MMSAR_Negotiation_Check::get_result();
+
+		if ( ! mmsar_feature_enabled( 'markdown' ) ) {
+			echo '<p class="description">';
+			esc_html_e( 'Markdown URLs are switched off, so there is no markdown for this to serve. Turn that on first.', 'make-my-site-agent-ready' );
+			echo '</p>';
+			return;
+		}
+
+		echo '<p class="description">';
+		esc_html_e( 'Asks this site for one of its own pages twice — once the way an AI client asks, then the same URL the way a browser asks — and reports which version came back each time. If the browser-style request is answered with markdown, a cache is serving the wrong copy to your readers and negotiation is switched back off automatically. A throwaway URL is used, so the check can never leave a markdown copy of a real page sitting in a cache.', 'make-my-site-agent-ready' );
+		echo '</p>';
+
+		if ( $result ) {
+			$notices                 = array(
+				'pass'     => array( 'notice-success', __( 'Working', 'make-my-site-agent-ready' ) ),
+				'warn'     => array( 'notice-warning', __( 'Working, with one protection missing', 'make-my-site-agent-ready' ) ),
+				'foreign'  => array( 'notice-warning', __( 'Something else is answering — not this plugin', 'make-my-site-agent-ready' ) ),
+				'fail'     => array( 'notice-error', __( 'Not safe on this site — switched off', 'make-my-site-agent-ready' ) ),
+				'inactive' => array( 'notice-warning', __( 'Not taking effect', 'make-my-site-agent-ready' ) ),
+				'error'    => array( 'notice-warning', __( 'Could not be checked', 'make-my-site-agent-ready' ) ),
+			);
+			$status                  = isset( $result['status'] ) ? $result['status'] : 'error';
+			list( $class, $heading ) = isset( $notices[ $status ] ) ? $notices[ $status ] : $notices['error'];
+
+			echo '<div class="notice ' . esc_attr( $class ) . ' inline" style="margin:12px 0;padding:8px 12px;">';
+			echo '<p><strong>' . esc_html( $heading ) . '</strong></p>';
+			echo '<p>' . esc_html( isset( $result['message'] ) ? $result['message'] : '' ) . '</p>';
+
+			if ( ! empty( $result['details'] ) && is_array( $result['details'] ) ) {
+				echo '<p class="description">' . esc_html( self::format_check_details( $result['details'] ) ) . '</p>';
+			}
+
+			if ( ! empty( $result['time'] ) ) {
+				echo '<p class="description">';
+				printf(
+					/* translators: %s: human-readable time difference, e.g. "5 mins" */
+					esc_html__( 'Checked %s ago.', 'make-my-site-agent-ready' ),
+					esc_html( human_time_diff( (int) $result['time'] ) )
+				);
+				echo '</p>';
+			}
+			echo '</div>';
+		}
+
+		echo '<p><a class="button button-secondary" href="' . esc_url( MMSAR_Negotiation_Check::run_url() ) . '">'
+			. esc_html__( 'Run the check', 'make-my-site-agent-ready' ) . '</a></p>';
+
+		if ( ! mmsar_feature_enabled( 'markdown_negotiation' ) ) {
+			echo '<p class="description">';
+			printf(
+				/* translators: %s: link to the Features list at the top of the page */
+				esc_html__( 'Content negotiation is currently off. The switch for it is %s at the top of this page, named "Markdown from the normal page URL" — tick it and save, and the check runs by itself. Running the check while it is off still tells you something: if markdown comes back anyway, a CDN is answering these requests instead of your site.', 'make-my-site-agent-ready' ),
+				'<a href="#mmsar-section-features">' . esc_html__( 'in the Features list', 'make-my-site-agent-ready' ) . '</a>'
+			);
+			echo '</p>';
+		}
+	}
+
+	/**
+	 * The observed headers, as one readable line.
+	 *
+	 * Shown verbatim rather than interpreted: when this feature goes wrong it goes wrong in
+	 * somebody else's infrastructure, and the person who has to take it up with their host needs
+	 * the actual values, not this plugin's reading of them.
+	 *
+	 * @param array $details Observed values from the check.
+	 * @return string
+	 */
+	private static function format_check_details( $details ) {
+		$labels = array(
+			'markdown_type' => __( 'Agent request returned', 'make-my-site-agent-ready' ),
+			'browser_type'  => __( 'Browser request returned', 'make-my-site-agent-ready' ),
+			'cache_control' => __( 'Cache-Control received', 'make-my-site-agent-ready' ),
+			'vary'          => __( 'Vary received', 'make-my-site-agent-ready' ),
+		);
+		$parts  = array();
+		foreach ( $labels as $key => $label ) {
+			$value   = ( isset( $details[ $key ] ) && '' !== $details[ $key ] )
+				? $details[ $key ]
+				: __( '(none)', 'make-my-site-agent-ready' );
+			$parts[] = $label . ': ' . $value;
+		}
+		return implode( ' · ', $parts );
 	}
 
 	/**

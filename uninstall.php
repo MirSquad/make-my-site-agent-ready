@@ -24,9 +24,13 @@ delete_option( 'mmsar_agent_log_limit' );
 delete_option( 'mmsar_agent_log_db_version' );
 delete_option( 'mmsar_agent_log_migrated' );
 delete_option( 'mmsar_agent_log_pages' );
+delete_option( 'mmsar_negotiation_check' );
+delete_option( 'mmsar_negotiation_reset_done' );
 delete_transient( 'llmmd_llms_txt' );
 delete_transient( 'mmsar_llms_full_txt' );
 delete_transient( 'mmsar_flush_needed' );
+delete_transient( 'mmsar_negotiation_check_pending' );
+delete_transient( 'mmsar_negotiation_check_notice' );
 
 global $wpdb;
 // Uninstall cleanup: remove all cached markdown post meta. No caching applies to a one-time delete.

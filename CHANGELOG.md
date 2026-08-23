@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.18.1 — 2026-08-23
+
+### Fixed
+
+- **The negotiation check could report the feature working while it was switched off.** It concluded "negotiation works" from the response's content type alone, and a content type is not proof of authorship: some CDNs convert a page to markdown at the edge on seeing a markdown-preferring `Accept`, and Cloudflare does this on at least one production host. The check saw `text/markdown` come back, credited it to the plugin, and reported the rewritten `Cache-Control` as a warning — directly above a line still reading "content negotiation is currently off". A check whose job is to be trusted about a feature that can break pages for readers cannot be wrong in the reassuring direction.
+- The check now compares the returned body against the markdown the plugin would actually serve for that post. Bytes are the only claim that survives a CDN in the middle: an identifying header can be stripped or forged at the edge, but an edge conversion cannot reproduce this plugin's output, because it converts the whole page — navigation, skip links, meta-derived frontmatter — rather than the content. This is the same byte-identity property the `.md` endpoint already guarantees, used as evidence.
+
+### New
+
+- **A `foreign` result**: markdown came back, the browser correctly got HTML, but the markdown is not this plugin's. Reported as a warning rather than a failure — agents are getting markdown and nothing is broken — while naming the likely cause and what is lost, since an edge conversion carries the site chrome and omits the frontmatter. Whether switching the feature on takes precedence over an edge conversion is host-specific and stated as unknown rather than guessed.
+
+### Changed
+
+- The content negotiation section now links back to the toggle that controls it, in the Features list at the top of the settings page, and the Features section gained an anchor for it to target. Every feature's switch lives in that list, but this is the first section with no settings of its own — only the check — so it read as though the feature could not be turned on at all.
+
+## 1.18.0 — 2026-08-23
+
+### New
+
+- **Markdown content negotiation, reinstated off by default.** A request for an ordinary page URL is answered with that page's markdown when its `Accept` header prefers markdown, instead of markdown living only at the `.md` address. This is the surface agents actually reach — a fetch tool sends one request to the canonical URL, and the `.md` mirror only helps a client that already knows the mirror exists. The `Accept` parsing is deliberately strict: markdown must be named explicitly and outrank HTML, a wildcard counts only towards HTML, and a tie goes to HTML, because getting this wrong serves a markdown file to a person. `Vary: Accept` is sent on both representations, and the markdown one is marked `private, no-store, max-age=0`. Output is byte-identical to the `.md` endpoint. Scope is singular posts and pages of enabled types only — archives, feeds, drafts, password-protected posts and 404s are untouched.
+- **A self-check for it**, at Settings > Agent-Ready. It requests one of the site's own pages twice — once with a markdown-preferring `Accept`, then the same URL with a browser's — and reports which representation came back each time, plus the `Cache-Control` and `Vary` values that actually arrived, verbatim. This is the piece that was missing in 1.15.0. The feature was withdrawn then not because it was wrong but because its failure mode was undetectable from inside a plugin; performing the two requests from outside one makes it detectable. The probe URL always carries a throwaway query argument, both to test a cache entry nothing has seen and so the check can never leave a markdown copy of a real page sitting in a shared cache — a check that caused the failure it looks for would be worse than none. It runs automatically when the feature is switched on, and on a button otherwise; there is no cron job.
+
+### Changed
+
+- **The check switches the feature back off when a browser-style request is answered with markdown.** That single condition means a cache is ignoring `Vary: Accept` and serving the markdown copy to readers, which is exactly what withdrew the feature in 1.15.0. It is the only case where the plugin changes a setting by itself, and it says so at the top of the screen when it does. Headers altered in transit — the `no-store` directive rewritten, `Vary` stripped — are reported as a warning rather than a shutdown: negotiation is working, but the safety net is not there, so the owner is told what to watch for and left to decide.
+- **Settings copy describes what the plugin attempts, not an outcome it cannot guarantee.** The 1.13.1 wording said markdown responses "are marked uncacheable so a cached copy can never be shown to a visitor". The first half was true and the promise was not: the host rewrote `Cache-Control` before it reached the edge, so the guarantee did not hold. The toggle now names the one symptom an owner can actually notice — a visitor getting a markdown file or a download prompt instead of the page — says to switch it off the moment that happens, names Cloudflare as a known cause, and points at the check rather than asking to be believed.
+
+### Fixed
+
+- **A setting left behind by 1.13.x no longer re-enables the feature silently.** 1.15.0 removed the `markdown_negotiation` key from the code but not from the database, so a site that once had it on still has `'1'` stored. Reinstating the key without handling that would have switched content negotiation straight back on for exactly the installs it had already failed on, with no check ever having run. The stored value is discarded on update, so the feature starts from its default — off — for everyone. The one-time step is claimed with `add_option()` rather than a read-then-write check, for the same concurrency reason as the 1.16.1 log migration.
+
 ## 1.17.1 — 2026-08-23
 
 ### Changed

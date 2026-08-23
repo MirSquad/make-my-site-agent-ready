@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.17.1
+Stable tag: 1.18.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -20,6 +20,7 @@ Every feature below can be switched off individually under Settings > Agent-Read
 
 * **Individual feature toggles** — Turn off any output the plugin publishes (markdown URLs, llms.txt, llms-full.txt, robots.txt rules, security.txt, api-catalog, Agent Skills). A disabled feature registers nothing at all — no rewrite rule, no filter, no header — so the site behaves as if that part of the plugin did not exist.
 * **`.md` URLs** — Append `.md` to any post or page URL to get a clean markdown version
+* **Markdown from the normal page URL** — Optional (off by default). Answers a request for an ordinary page with its markdown when the request's `Accept` header asks for markdown, which is how AI clients ask. Comes with a self-check that requests one of your own pages as an agent and then as a browser, reports which version came back and what cache headers survived, and switches the feature off by itself if a browser-style request is ever answered with markdown. Leave it off if your site is behind a CDN that ignores `Vary: Accept` — Cloudflare does
 * **llms.txt** — Auto-generated site index at `/llms.txt` listing all available markdown content
 * **llms-full.txt** — Full site content in one file at `/llms-full.txt` for LLMs that want everything
 * **security.txt** — Serves `/.well-known/security.txt` (RFC 9116). Enter your security contact as a full URL, a path like `/contact`, or an email address, and the plugin formats it correctly
@@ -51,6 +52,12 @@ Every feature below can be switched off individually under Settings > Agent-Read
 4. Visit `/llms.txt` on your site to verify the index.
 
 == Frequently Asked Questions ==
+
+= A visitor got a markdown file instead of my page. What happened? =
+
+Switch off "Markdown from the normal page URL" under Settings > Agent-Ready. That feature answers a page request with markdown when the request asks for markdown, and it relies on caches honoring the `Vary: Accept` header, which tells them the two versions are not interchangeable. Some CDNs ignore it — Cloudflare among them — and then hand the markdown copy to whoever asks next, including people. The plugin also marks that response uncacheable as a second line of defence, but some hosts rewrite that header before it leaves their network.
+
+This is the only way the plugin can affect what a human visitor sees, which is why the feature ships off and why the check on that settings screen exists. Run it: if a browser-style request comes back as markdown, the check switches the feature off itself. Your `.md` URLs are unaffected and keep working.
 
 = Does this slow down my site? =
 
@@ -105,6 +112,17 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.18.1 - 2026-08-23 =
+* Fix: The content negotiation check could report the feature "working" when it was switched off. Some CDNs — Cloudflare among them — convert pages to markdown at the edge when they see the same Accept header, so markdown came back and the check credited it to this plugin. It now compares the response against the markdown the plugin actually generates and says plainly when something else is answering.
+* New: A result for that case. If markdown comes back but it isn't yours, the check says so, names the likely cause, and points out that an edge conversion carries your site navigation and misses the frontmatter this plugin writes.
+* Change: The content negotiation section now links to the switch that controls it, in the Features list at the top of the page. The section holds only the check, so it read as though there was no way to turn the feature on.
+
+= 1.18.0 - 2026-08-23 =
+* New: Markdown content negotiation is back, off by default. With it on, a request for an ordinary page URL is answered with that page's markdown when the request's Accept header asks for markdown — which is how AI clients actually ask. The .md addresses are unchanged and keep working either way.
+* New: A self-check for it, at Settings > Agent-Ready. It asks your site for one of its own pages twice — once the way an AI client asks, then the same URL the way a browser asks — and tells you which version came back each time, along with the Cache-Control and Vary headers that actually arrived. The check is what makes this feature offerable at all: the reason it was withdrawn in 1.15.0 was that the failure could not be detected. It can now.
+* Note: the one thing to watch for is a visitor opening a page in a browser and getting a markdown file, or a download prompt, instead of the page. That means a cache in front of your site is ignoring the Vary: Accept header and handing the markdown copy to everyone; Cloudflare is known to do this. Switch content negotiation off if you see it. If the self-check catches that condition itself, it switches the feature off for you and says so.
+* Note: a site that had this feature switched on back in 1.13.0 or 1.13.1 still has that setting stored. Updating clears it, so content negotiation starts off for everyone and stays off until you turn it on and the check has run.
 
 = 1.17.1 - 2026-08-23 =
 * Change: Spelling normalized to US English throughout the plugin's text — settings descriptions, readme and code comments. No functional change.
