@@ -246,6 +246,145 @@ class MMSAR_Agent_Log {
 	}
 
 	/**
+	 * A batch of entries older than a given id, newest first.
+	 *
+	 * Used for walking the whole log — an export, or anything else that reads every row. Paging by
+	 * id rather than by OFFSET matters here because the log is appended to while the walk is in
+	 * progress: with OFFSET, every row inserted mid-walk shifts the window and the reader sees a
+	 * row twice or skips one. An id cursor addresses rows rather than positions, so newly appended
+	 * rows are simply not part of the walk, and the query stays fast at any depth.
+	 *
+	 * @param int $before_id Return rows with a lower id than this. 0 starts from the newest row.
+	 * @param int $limit     Maximum rows to return.
+	 * @return array[] Entries as associative arrays, including id.
+	 */
+	public static function get_entries_before( $before_id = 0, $limit = 500 ) {
+		global $wpdb;
+		$before_id = absint( $before_id );
+		$limit     = absint( $limit );
+
+		if ( $before_id > 0 ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would show a stale log.
+			$rows = $wpdb->get_results(
+				$wpdb->prepare(
+					'SELECT id, logged_at, surface, agent, ip FROM %i WHERE id < %d ORDER BY id DESC LIMIT %d',
+					self::table(),
+					$before_id,
+					$limit
+				),
+				ARRAY_A
+			);
+		} else {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
+			$rows = $wpdb->get_results(
+				$wpdb->prepare(
+					'SELECT id, logged_at, surface, agent, ip FROM %i ORDER BY id DESC LIMIT %d',
+					self::table(),
+					$limit
+				),
+				ARRAY_A
+			);
+		}
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * Aggregate counts over the whole log.
+	 *
+	 * The log answers "which agents fetch what", and answering it from a page of raw rows means
+	 * reading every page and tallying by hand. These are the tallies, computed by the database in
+	 * one pass each, so a caller that only wants the shape of the traffic never has to pull the
+	 * rows at all.
+	 *
+	 * Datetimes are UTC, as stored.
+	 *
+	 * @param int $top  Maximum rows in the by-agent and by-surface breakdowns.
+	 * @param int $days Maximum rows in the by-day breakdown, most recent first.
+	 * @return array Aggregates.
+	 */
+	public static function get_summary( $top = 25, $days = 60 ) {
+		global $wpdb;
+		$table = self::table();
+		$top   = max( 1, absint( $top ) );
+		$days  = max( 1, absint( $days ) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would show a stale log.
+		$totals = $wpdb->get_row(
+			$wpdb->prepare(
+				'SELECT COUNT(*) AS total, COUNT(DISTINCT agent) AS unique_agents, COUNT(DISTINCT ip) AS unique_ips, MIN(logged_at) AS first_logged_at, MAX(logged_at) AS last_logged_at FROM %i',
+				$table
+			),
+			ARRAY_A
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
+		$by_agent = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT agent, COUNT(*) AS requests, COUNT(DISTINCT surface) AS surfaces, COUNT(DISTINCT ip) AS unique_ips, MIN(logged_at) AS first_seen, MAX(logged_at) AS last_seen FROM %i GROUP BY agent ORDER BY requests DESC, agent ASC LIMIT %d',
+				$table,
+				$top
+			),
+			ARRAY_A
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
+		$by_surface = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT surface, COUNT(*) AS requests, COUNT(DISTINCT agent) AS agents, MIN(logged_at) AS first_seen, MAX(logged_at) AS last_seen FROM %i GROUP BY surface ORDER BY requests DESC, surface ASC LIMIT %d',
+				$table,
+				$top
+			),
+			ARRAY_A
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
+		$by_day = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT DATE(logged_at) AS day, COUNT(*) AS requests, COUNT(DISTINCT agent) AS agents FROM %i GROUP BY day ORDER BY day DESC LIMIT %d',
+				$table,
+				$days
+			),
+			ARRAY_A
+		);
+
+		return array(
+			'total'           => isset( $totals['total'] ) ? (int) $totals['total'] : 0,
+			'unique_agents'   => isset( $totals['unique_agents'] ) ? (int) $totals['unique_agents'] : 0,
+			'unique_ips'      => isset( $totals['unique_ips'] ) ? (int) $totals['unique_ips'] : 0,
+			'first_logged_at' => isset( $totals['first_logged_at'] ) ? (string) $totals['first_logged_at'] : '',
+			'last_logged_at'  => isset( $totals['last_logged_at'] ) ? (string) $totals['last_logged_at'] : '',
+			'by_agent'        => self::int_columns( $by_agent, array( 'requests', 'surfaces', 'unique_ips' ) ),
+			'by_surface'      => self::int_columns( $by_surface, array( 'requests', 'agents' ) ),
+			'by_day'          => self::int_columns( $by_day, array( 'requests', 'agents' ) ),
+		);
+	}
+
+	/**
+	 * Casts the named columns of a result set to integers.
+	 *
+	 * MySQL hands back counts as numeric strings. Left alone they serialize into JSON as "12"
+	 * rather than 12, which is the wrong type for an output schema that says integer.
+	 *
+	 * @param array[]  $rows    Result rows.
+	 * @param string[] $columns Column names to cast.
+	 * @return array[] Rows with those columns cast.
+	 */
+	private static function int_columns( $rows, $columns ) {
+		if ( ! is_array( $rows ) ) {
+			return array();
+		}
+		foreach ( $rows as $index => $row ) {
+			foreach ( $columns as $column ) {
+				if ( isset( $row[ $column ] ) ) {
+					$rows[ $index ][ $column ] = (int) $row[ $column ];
+				}
+			}
+		}
+		return $rows;
+	}
+
+	/**
 	 * Deletes every entry.
 	 *
 	 * @return void

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.19.0 — 2026-08-26
+
+### New
+
+- **CSV export on the Agent Log screen.** The log was readable only fifty rows at a time in wp-admin, which is fine for a glance and useless for a question like "who has been here and what did they take" — answering that meant paging through the whole thing by eye and tallying by hand. The export writes the entire log, streamed in batches of 500 so peak memory is one batch whatever the log holds. Two details are deliberate. The timestamp column is named `logged_at_utc` rather than `logged_at`: rows are stored in UTC and the screen renders them in the site's timezone, so a bare name would leave a reader comparing an exported row against the screen with no way to tell which of the two they were holding. And the walk pages by id cursor rather than `OFFSET`, because the log is appended to while the export runs — with `OFFSET`, every row inserted mid-walk shifts the window and the reader gets a row twice or misses one.
+- **Formula injection is neutralized in the export.** The agent column stores the user-agent string verbatim, on purpose, so unrecognized clients stay identifiable — which means it holds a string the caller chose. Excel and several other spreadsheets execute a cell beginning `=`, `+`, `-`, `@`, tab or CR as a formula on open. Those cells are written with a leading apostrophe, which spreadsheets hide and treat as text. This is the one place the plugin hands untrusted stored input to a program on someone else's machine, so it is handled at the point of writing rather than left to the reader.
+- **A `get-agent-log` ability.** The plugin publishes surfaces so agents can read the site, records who reads them, and then made that record the one thing on the site an agent could not get at — it lived in a custom table, which no REST route reaches. The ability closes that. It returns aggregates over the whole log — by agent, by surface, by day, with unique agent and IP counts — computed in the database rather than tallied from a page of rows, plus one page of individual entries. Administrators only, matching the screen.
+- The ability's output also carries `logging_enabled`, `page_views_recorded`, `retention_limit` and `throttle_seconds`, which sound like housekeeping and are not: each one changes what the numbers mean. A quiet week reads as "no agents called" unless you know logging was switched off. Counts read as a share of agent traffic unless you know page views are unrecorded, in which case an agent that visited and ignored the agent-facing files left no trace at all. The first entry reads as the start of the record unless a retention limit has been dropping the oldest rows. And with the same agent, surface and IP recorded at most once per five minutes, every count is a lower bound on requests — reach, not volume. A caller that cannot see those four fields will misread the log confidently, so they travel with it.
+- `summary_only` returns the aggregates and omits the entries, which is both the cheaper call and the way to read the log without handling IP addresses at all — the aggregates carry counts of distinct IPs, never the addresses.
+
+
 ## 1.18.1 — 2026-08-23
 
 ### Fixed

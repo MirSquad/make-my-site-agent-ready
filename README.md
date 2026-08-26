@@ -36,6 +36,7 @@ Every feature below can be switched off individually under **Settings > Agent-Re
 ### Configuration and operations
 - **Settings page** (Settings > Agent-Ready) — per-feature on/off toggles, post type selector, CSS root selector, robots.txt preview and extra-rules textarea, security contact, Content Signals toggles, a structured data (JSON-LD) toggle, and Quick Links to every endpoint currently being served
 - **Bulk regeneration** — "Regenerate All" button on the settings page
+- **Agent request log** (off by default) — records which agents fetch the surfaces above, on its own screen at Settings > Agent Log, with a retention setting, a dashboard widget, a CSV export of the whole log, and a read-only ability so an agent can read it too. See [The agent log](#the-agent-log)
 - **Proper HTTP headers** — `Content-Type: text/markdown`, `X-Robots-Tag: noindex`, `X-Content-Type-Options: nosniff`, canonical link
 - **Password protection** — password-protected posts return 403 on `.md` URLs
 - **Clean uninstall** — removes all plugin data (post meta, options, transients)
@@ -204,6 +205,46 @@ A pass means no problem was found from this server, not that none exists — the
 
 **A stored setting from 1.13.x does not survive the reinstatement.** 1.15.0 removed the `markdown_negotiation` feature key from the code but left its value in the options table, so reinstating the key would have switched the feature back on for exactly the installs it had already failed on. The value is discarded once on update, claimed with `add_option()` so concurrent requests during the same upgrade cannot both perform it.
 
+## The agent log
+
+Off by default. Once switched on at Settings > Agent-Ready, every request for one of the surfaces
+this plugin publishes — a `.md` URL, `llms.txt`, `llms-full.txt`, `security.txt`, the api-catalog,
+the Agent Skills index, a `SKILL.md` — is recorded with the time, the requesting agent, and the IP.
+There is no user-agent test on those: anything fetching `llms.txt` is agent traffic whatever it
+calls itself, and filtering on user-agent would hide exactly the clients worth knowing about.
+
+An optional sub-setting also records ordinary HTML page views from recognized AI crawlers. That one
+supplies the denominator. Without it the log shows only the agents that asked for an agent-facing
+file, and "which agents ask for markdown" cannot be answered without also knowing which ones came
+and did not. In practice this is where the interesting answer lives — on the author's own site, the
+best-known AI crawlers turned out to fetch HTML and ignore every agent-facing file, while the
+clients that actually walked the discovery chain were unbranded ones.
+
+Three properties decide what the counts can honestly be read to mean, and all three are reported by
+the ability alongside the data:
+
+- **The log is throttled.** The same agent, surface and IP is recorded at most once per five minutes,
+  so a crawler looping on one URL cannot drown out everything else. Every count is a lower bound on
+  requests — the log measures reach, not volume.
+- **Page-view recording is separate.** With it off, an agent that visited and ignored the
+  agent-facing files leaves no trace at all, so the log is a record of who *used* these surfaces and
+  never a share of agent traffic.
+- **Retention is configurable.** `0` (the default) keeps everything; with a limit set, the oldest
+  entries are dropped, so the first entry is not necessarily the start of the record.
+
+### Reading it
+
+The screen paginates at 50 entries. **Export CSV** writes the whole log — columns `logged_at_utc`,
+`agent`, `surface`, `ip` — streamed in batches so peak memory does not grow with the log. The
+timestamp column is named for its timezone on purpose: rows are stored in UTC and the screen renders
+them in the site's timezone. Cells whose value begins `=`, `+`, `-`, `@`, tab or CR are written with
+a leading apostrophe, because the agent column holds a user-agent string chosen by the caller and
+spreadsheets execute such cells as formulas on open.
+
+Entries are also mirrored into the [Activity Log](https://wordpress.org/plugins/aryo-activity-log/)
+plugin under the object type `Agent-Ready` wherever its API is reachable. The plugin's own table is
+the record; the mirror is a convenience and can never affect a response being served.
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
@@ -235,5 +276,6 @@ This plugin exposes abilities for the [WordPress Abilities API](https://develope
 | `make-my-site-agent-ready/list-endpoints` | Always on | Lists every endpoint being published, flagging which are managed on the settings page and which a plugin or theme registered in code, plus where each is actually appearing right now. |
 | `make-my-site-agent-ready/set-endpoint` | Always on | Adds an endpoint, or updates one already managed on the settings page. Send only the fields you want changed when updating. |
 | `make-my-site-agent-ready/delete-endpoint` | Always on (destructive) | Removes an endpoint managed on the settings page. |
+| `make-my-site-agent-ready/get-agent-log` | Always on (read-only) | Reads the agent request log: counts by agent, by surface and by day across the whole log, plus a page of individual entries. Pass `summary_only` for the aggregates alone, which carry counts of distinct IPs but no addresses. |
 
 Endpoints a plugin or theme registered in code are read-only to `set-endpoint` and `delete-endpoint`: both return a `409` explaining that the owning plugin or theme has to be edited instead. Reporting success for a write that changed nothing would be worse than refusing it.

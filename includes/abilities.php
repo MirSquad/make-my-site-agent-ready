@@ -25,7 +25,7 @@ function mmsar_register_ability_category() {
 		'make-my-site-agent-ready',
 		array(
 			'label'       => __( 'Make My Site Agent-Ready', 'make-my-site-agent-ready' ),
-			'description' => __( 'Inspect plugin settings and trigger content regeneration.', 'make-my-site-agent-ready' ),
+			'description' => __( 'Inspect plugin settings, read the agent request log, and trigger content regeneration.', 'make-my-site-agent-ready' ),
 		)
 	);
 }
@@ -453,6 +453,175 @@ function mmsar_register_abilities() {
 				'annotations' => array(
 					'readonly'    => false,
 					'destructive' => true,
+					'idempotent'  => true,
+				),
+			),
+		)
+	);
+
+	wp_register_ability(
+		'make-my-site-agent-ready/get-agent-log',
+		array(
+			'label'               => __( 'Get Agent Log', 'make-my-site-agent-ready' ),
+			'description'         => __( 'Read the agent request log: which agents fetched which of this site\'s agent-facing surfaces, and when. Returns aggregate counts by agent, by surface and by day over the whole log, plus one page of individual entries. All datetimes are UTC. Ask for summary_only when the shape of the traffic is the question, which is most of the time — the aggregates cover every entry, while entries only ever cover the page requested.', 'make-my-site-agent-ready' ),
+			'category'            => 'make-my-site-agent-ready',
+			'input_schema'        => array(
+				'type'       => 'object',
+				'properties' => array(
+					'limit'        => array(
+						'type'        => 'integer',
+						'minimum'     => 1,
+						'maximum'     => 500,
+						'default'     => 50,
+						'description' => 'How many individual entries to return, newest first. Ignored when summary_only is true.',
+					),
+					'offset'       => array(
+						'type'        => 'integer',
+						'minimum'     => 0,
+						'default'     => 0,
+						'description' => 'Entries to skip before returning any, for paging back through the log.',
+					),
+					'summary_only' => array(
+						'type'        => 'boolean',
+						'default'     => false,
+						'description' => 'Return the aggregates and omit individual entries. The aggregates carry no IP addresses, so this is also the way to read the log without handling them.',
+					),
+				),
+			),
+			'output_schema'       => array(
+				'type'       => 'object',
+				'properties' => array(
+					'logging_enabled'     => array(
+						'type'        => 'boolean',
+						'description' => 'False when the agent log feature is switched off. Existing entries are still readable; nothing new is being recorded, so a quiet recent period may mean the log was off rather than that no agents called.',
+					),
+					'page_views_recorded' => array(
+						'type'        => 'boolean',
+						'description' => 'Whether ordinary HTML page views by recognized AI crawlers are recorded alongside the agent-facing surfaces. When false, an agent that visited the site but never asked for markdown or llms.txt leaves no trace at all, so the log cannot be read as a share of agent traffic — only as a record of who used the agent-facing surfaces.',
+					),
+					'retention_limit'     => array(
+						'type'        => 'integer',
+						'description' => 'Entries kept before the oldest are dropped. 0 means everything is kept, so the first entry is the true beginning of the record.',
+					),
+					'total'               => array( 'type' => 'integer' ),
+					'unique_agents'       => array( 'type' => 'integer' ),
+					'unique_ips'          => array( 'type' => 'integer' ),
+					'first_logged_at'     => array(
+						'type'        => 'string',
+						'description' => 'UTC datetime of the oldest entry, "Y-m-d H:i:s". Empty when the log is empty.',
+					),
+					'last_logged_at'      => array(
+						'type'        => 'string',
+						'description' => 'UTC datetime of the newest entry, "Y-m-d H:i:s". Empty when the log is empty.',
+					),
+					'throttle_seconds'    => array(
+						'type'        => 'integer',
+						'description' => 'The same agent, surface and IP is recorded at most once per this many seconds. Counts are therefore a lower bound on requests and should be read as reach, not volume.',
+					),
+					'by_agent'            => array(
+						'type'        => 'array',
+						'description' => 'Busiest agents first. An agent is the matched crawler name where recognized, otherwise the raw user-agent string, truncated.',
+						'items'       => array(
+							'type'       => 'object',
+							'properties' => array(
+								'agent'      => array( 'type' => 'string' ),
+								'requests'   => array( 'type' => 'integer' ),
+								'surfaces'   => array( 'type' => 'integer' ),
+								'unique_ips' => array( 'type' => 'integer' ),
+								'first_seen' => array( 'type' => 'string' ),
+								'last_seen'  => array( 'type' => 'string' ),
+							),
+						),
+					),
+					'by_surface'          => array(
+						'type'        => 'array',
+						'description' => 'Most-requested surfaces first, e.g. "llms.txt", "Markdown (.md URL)", "api-catalog".',
+						'items'       => array(
+							'type'       => 'object',
+							'properties' => array(
+								'surface'    => array( 'type' => 'string' ),
+								'requests'   => array( 'type' => 'integer' ),
+								'agents'     => array( 'type' => 'integer' ),
+								'first_seen' => array( 'type' => 'string' ),
+								'last_seen'  => array( 'type' => 'string' ),
+							),
+						),
+					),
+					'by_day'              => array(
+						'type'        => 'array',
+						'description' => 'Most recent UTC day first.',
+						'items'       => array(
+							'type'       => 'object',
+							'properties' => array(
+								'day'      => array( 'type' => 'string' ),
+								'requests' => array( 'type' => 'integer' ),
+								'agents'   => array( 'type' => 'integer' ),
+							),
+						),
+					),
+					'entries'             => array(
+						'type'        => 'array',
+						'description' => 'Individual entries, newest first. Omitted when summary_only is true.',
+						'items'       => array(
+							'type'       => 'object',
+							'properties' => array(
+								'logged_at' => array( 'type' => 'string' ),
+								'agent'     => array( 'type' => 'string' ),
+								'surface'   => array( 'type' => 'string' ),
+								'ip'        => array( 'type' => 'string' ),
+							),
+						),
+					),
+					'returned'            => array(
+						'type'        => 'integer',
+						'description' => 'How many entries this call returned.',
+					),
+					'limit'               => array( 'type' => 'integer' ),
+					'offset'              => array( 'type' => 'integer' ),
+				),
+			),
+			'permission_callback' => fn() => current_user_can( 'manage_options' ),
+			'execute_callback'    => function ( $input = null ) {
+				$input        = is_array( $input ) ? $input : array();
+				$summary_only = ! empty( $input['summary_only'] );
+				$limit        = isset( $input['limit'] ) ? absint( $input['limit'] ) : 50;
+				$limit        = max( 1, min( 500, $limit ) );
+				$offset       = isset( $input['offset'] ) ? absint( $input['offset'] ) : 0;
+
+				$summary = MMSAR_Agent_Log::get_summary();
+
+				$result = array(
+					'logging_enabled'     => MMSAR_Agent_Log::is_active(),
+					'page_views_recorded' => '1' === get_option( 'mmsar_agent_log_pages', '' ),
+					'retention_limit'     => MMSAR_Agent_Log::get_limit(),
+					'throttle_seconds'    => MMSAR_Agent_Log::THROTTLE,
+					'total'               => $summary['total'],
+					'unique_agents'       => $summary['unique_agents'],
+					'unique_ips'          => $summary['unique_ips'],
+					'first_logged_at'     => $summary['first_logged_at'],
+					'last_logged_at'      => $summary['last_logged_at'],
+					'by_agent'            => $summary['by_agent'],
+					'by_surface'          => $summary['by_surface'],
+					'by_day'              => $summary['by_day'],
+				);
+
+				if ( $summary_only ) {
+					return $result;
+				}
+
+				$entries            = MMSAR_Agent_Log::get_entries( $limit, $offset );
+				$result['entries']  = $entries;
+				$result['returned'] = count( $entries );
+				$result['limit']    = $limit;
+				$result['offset']   = $offset;
+
+				return $result;
+			},
+			'meta'                => array(
+				'mcp'         => array( 'public' => true ),
+				'annotations' => array(
+					'readonly'    => true,
+					'destructive' => false,
 					'idempotent'  => true,
 				),
 			),

@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.18.1
+Stable tag: 1.19.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,6 +112,10 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.19.0 - 2026-08-26 =
+* New: "Export CSV" on the Agent Log screen. It writes every entry, not just the page on screen, with timestamps in UTC — the screen shows them in your site's timezone, and the column name says which you are holding. Values that a spreadsheet would run as a formula are neutralized on the way out, because the agent column holds a string the caller chose.
+* New: A `get-agent-log` ability, so an AI agent connected to your site can read the log and tell you what is in it. It returns counts by agent, by surface and by day across the whole log, plus a page of individual entries, and reports whether logging is on, whether page views are being recorded, and the five-minute throttle — the three things that decide what the numbers can honestly be read to mean. Ask for `summary_only` to get the aggregates without any IP addresses. Administrators only, like the screen.
 
 = 1.18.1 - 2026-08-23 =
 * Fix: The content negotiation check could report the feature "working" when it was switched off. Some CDNs — Cloudflare among them — convert pages to markdown at the edge when they see the same Accept header, so markdown came back and the check credited it to this plugin. It now compares the response against the markdown the plugin actually generates and says plainly when something else is answering.
