@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.21.2 — 2026-08-27
+
+Small release with an awkward reason: 1.21.1 was tagged, then amended before it was pushed, so two different builds briefly carried that version number. One was installed on a live site and the other reached GitHub. Nothing was broken by it, but a version number that means two things is worse than a version bump, so the corrected build ships as 1.21.2.
+
+### New
+
+- **`get_site_overview` lists `/auth.md`.** It was the one document the overview never mentioned, which is the wrong way round: an agent asking a site what it offers should be told how to get in, and for most sites the answer is that it does not need to.
+
+### Fixed
+
+- The overview advertised `/openapi.json` unconditionally, including on a site where the plugin has deliberately stood down from serving it because a real `openapi.json` already sits in the web root. It checks `MMSAR_OpenAPI::is_serving()` now, like every other surface that links to it.
+- A stray blank line at the end of the overview output.
+
+### Changed
+
+- The overview builder is four small methods, one per section, instead of one function with four conditionals wrapped around blocks that were never re-indented. The indentation was what a pre-push audit caught; the shape of the function was the actual problem.
+- Removed a method left dead by 1.21.1's ARD rewrite, and an `array_values()` call on something that was already a list.
+
 ## 1.21.1 — 2026-08-27
 
 Three fixes from re-scanning with 1.21.0 live. Also worth recording what the scan got *wrong*: it reported `/.well-known/api-catalog` as absent, the About/Contact/Privacy pages as missing, and the site's own homepage as an unresolvable link — all three demonstrably fine, and all three passing in the previous run. Transient scan failures read exactly like regressions in a diff, and chasing them would have meant "fixing" working code.

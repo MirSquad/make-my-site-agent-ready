@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.21.1
+Stable tag: 1.21.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,6 +112,12 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.21.2 - 2026-08-27 =
+* New: The MCP get_site_overview tool lists /auth.md among the site's endpoints. It was the one document the overview never mentioned, which is backwards: an agent asking what a site offers should be told how to get in.
+* Fix: The overview advertised /openapi.json even on a site where the plugin has stood down from serving it, because a real openapi.json already exists in the web root. It now checks before listing it.
+* Fix: Removed a stray blank line from the end of the overview output.
+* Change: Internal code quality. The overview builder was one long function with four conditionals wrapped around unindented blocks; it is now four small methods, one per section. Also removed a dead method and a redundant array_values() call left behind by the 1.21.1 rewrite of the ARD catalog. No behavior change from any of these.
 
 = 1.21.1 - 2026-08-27 =
 * Fix: The Agentic Resource Discovery catalog did not match the ARD specification. It used `resources` where the spec says `entries`, and put a category word in `type` where the spec wants an IANA media type — so validators reported the catalog as present but invalid, with no entries to check. Entries now also carry a trustManifest, capabilities and representative queries. The catalog is served at /.well-known/ard.json as well, which is the address the specification itself names.
