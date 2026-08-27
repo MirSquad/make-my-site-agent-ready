@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.19.0
+Stable tag: 1.20.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,6 +112,19 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.20.1 - 2026-08-27 =
+* New: A 404 now answers with a JSON error — the same code/message/data.status shape the REST API uses — when the request asks for JSON. A client calling what it thinks is an API and getting a themed HTML page back cannot tell a wrong URL from a broken server without parsing markup. Browsers are unaffected: JSON has to be named in the Accept header and outrank HTML, which no browser does.
+* New: The MCP discovery manifest carries your site icon, so a directory listing the server has something to show next to its name.
+* Change: Tool input schemas are now closed (additionalProperties: false), and the no-argument tool says so explicitly rather than shipping an empty properties object — both stop a model inventing arguments that would be ignored.
+* Change: The OpenAPI document now references its Error schema everywhere that shape is genuinely returned, which is now everywhere except the .md addresses. Those answer in Markdown even when the answer is "nothing here", and the spec says so rather than promising JSON.
+
+= 1.20.0 - 2026-08-27 =
+* New: An OpenAPI specification at /openapi.json, generated from what your site actually serves — the endpoints this plugin publishes, the REST routes really registered on your install, and anything you added under Endpoints. Everything else here tells an agent what exists; this is the file that tells an HTTP client how to call it, and it is what agent-readiness scanners look for. Skipped automatically if you already have a real openapi.json in your site root.
+* New: A read-only MCP server, off by default. Switch it on and AI clients that speak the Model Context Protocol can connect to your site directly, with four tools: search the content, list it, read any page as Markdown, and get an overview of the site. It is strictly read-only, limited to the published content in the post types you have enabled, and rate-limited to 60 calls a minute per IP — it exposes nothing that llms-full.txt does not already publish. A discovery manifest is served at /.well-known/mcp.json.
+* New: Agent-recoverable 404s. A normal 404 tells an agent its URL was wrong and nothing more, which leaves it with no way to find the page it wanted. Every 404 now carries Link headers and <link> tags pointing at your sitemap, llms.txt and endpoint catalog, and a client that explicitly asked for Markdown gets a short list of those destinations instead of the themed error page. Your 404 page looks exactly the same to visitors.
+* New: llms.txt now opens with a "For agents" section naming the machine-readable endpoints your site publishes. It is the file an agent is most likely to fetch first, and until now it said nothing about the rest.
+* Change: A missing .md URL now returns the same recovery list rather than a one-line "not found", and says specifically what went wrong — no such page, wrong post type, or nothing to convert.
 
 = 1.19.0 - 2026-08-26 =
 * New: "Export CSV" on the Agent Log screen. It writes every entry, not just the page on screen, with timestamps in UTC — the screen shows them in your site's timezone, and the column name says which you are holding. Values that a spreadsheet would run as a formula are neutralized on the way out, because the agent column holds a string the caller chose.

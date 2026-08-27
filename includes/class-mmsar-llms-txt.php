@@ -154,6 +154,10 @@ class MMSAR_LLMs_Txt {
 			$lines[] = '- [Home (Markdown)](' . rtrim( $home_url, '/' ) . '/index.md)';
 		}
 
+		foreach ( self::agent_endpoint_lines() as $line ) {
+			$lines[] = $line;
+		}
+
 		$post_types   = mmsar_get_enabled_post_types();
 		$pages        = self::get_posts_by_type( 'page', $post_types );
 		$posts        = self::get_posts_by_type( 'post', $post_types );
@@ -202,6 +206,42 @@ class MMSAR_LLMs_Txt {
 		}
 
 		return implode( "\n", $lines ) . "\n";
+	}
+
+	/**
+	 * The section listing this site's machine-readable endpoints.
+	 *
+	 * llms.txt is the file an agent is most likely to fetch first, and until now it said nothing
+	 * about the rest of what this site publishes — an agent could read the whole index and still
+	 * not know there was an API to call or a server to connect to. Each line is gated on its own
+	 * feature, so nothing here points at a switched-off endpoint.
+	 *
+	 * @return string[] Lines to append, or an empty array when there is nothing to list.
+	 */
+	private static function agent_endpoint_lines() {
+		$entries = array();
+
+		if ( mmsar_feature_enabled( 'markdown' ) ) {
+			$entries[] = '- Any page as Markdown: add `.md` to its URL — no separate fetch of the HTML needed.';
+		}
+		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {
+			$entries[] = '- [llms-full.txt](' . home_url( '/llms-full.txt' ) . '): every page below, in full, in one document.';
+		}
+		if ( mmsar_feature_enabled( 'openapi' ) && MMSAR_OpenAPI::is_serving() ) {
+			$entries[] = '- [openapi.json](' . MMSAR_OpenAPI::url() . '): OpenAPI description of this site\'s API — how to search and filter its content over HTTP.';
+		}
+		if ( mmsar_feature_enabled( 'mcp_server' ) ) {
+			$entries[] = '- MCP server (read-only, no auth): `' . MMSAR_MCP::endpoint_url() . '` — connect directly if your client speaks MCP. Described at [/.well-known/mcp.json](' . home_url( '/.well-known/mcp.json' ) . ').';
+		}
+		if ( mmsar_feature_enabled( 'api_catalog' ) ) {
+			$entries[] = '- [api-catalog](' . home_url( '/.well-known/api-catalog' ) . '): every machine-readable endpoint on this site.';
+		}
+
+		if ( empty( $entries ) ) {
+			return array();
+		}
+
+		return array_merge( array( '', '## For agents' ), $entries );
 	}
 
 	/**

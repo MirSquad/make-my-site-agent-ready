@@ -127,6 +127,18 @@ class MMSAR_Admin {
 				__( 'api-catalog', 'make-my-site-agent-ready' ),
 				__( 'Lists your site\'s machine-readable endpoints at /.well-known/api-catalog (RFC 9727).', 'make-my-site-agent-ready' ),
 			),
+			'openapi'              => array(
+				__( 'OpenAPI specification', 'make-my-site-agent-ready' ),
+				__( 'Publishes a machine-readable description of this site\'s API at /openapi.json, generated from what the site actually serves: the endpoints above, the REST routes really registered on this install, and anything listed in Endpoints below. The other files here tell an agent what exists; this is the one that tells an HTTP client how to call it, and it is what agent-readiness scanners look for. Skipped automatically if a real openapi.json file already sits in your site root.', 'make-my-site-agent-ready' ),
+			),
+			'mcp_server'           => array(
+				__( 'MCP server (read-only)', 'make-my-site-agent-ready' ),
+				__( 'Opens a Model Context Protocol endpoint that AI clients — Claude, ChatGPT, agent frameworks — can connect to directly, with four tools: search the site, list content, read a page as Markdown, and get an overview. Strictly read-only and limited to the published content in the post types above, so it exposes nothing that llms-full.txt does not already publish, and it is rate-limited to 60 calls a minute per IP. Also publishes a discovery manifest at /.well-known/mcp.json. Off by default: unlike everything else here it answers requests by running queries rather than serving a file, and adding a public endpoint like that is your decision to make.', 'make-my-site-agent-ready' ),
+			),
+			'agent_404'            => array(
+				__( 'Agent-recoverable 404s', 'make-my-site-agent-ready' ),
+				__( 'A normal 404 tells an agent its URL was wrong and nothing else. This adds Link headers and <link> tags pointing at your sitemap, llms.txt and endpoint catalog, so it can find its way to the right page instead of giving up — and returns a short Markdown list of those destinations, in place of the themed error page, to clients that explicitly asked for Markdown. Your 404 page looks exactly the same to visitors.', 'make-my-site-agent-ready' ),
+			),
 			'agent_log'            => array(
 				__( 'Agent request log', 'make-my-site-agent-ready' ),
 				__( 'Records which agents fetch the files above, and what they asked for. Entries appear on the Agent Log screen under Settings, which has its own retention setting, and are also copied to the Activity Log plugin when it is available. Nothing is recorded on a normal page view — only when one of these agent-facing files is actually served. Off by default.', 'make-my-site-agent-ready' ),
@@ -163,6 +175,7 @@ class MMSAR_Admin {
 		// catch non-Settings-API writes can never drift to different flags or lifetimes.
 		delete_transient( 'llmmd_llms_txt' );
 		delete_transient( 'mmsar_llms_full_txt' );
+		MMSAR_OpenAPI::flush();
 		mmsar_flag_flush_needed();
 		return $out;
 	}
@@ -190,6 +203,10 @@ class MMSAR_Admin {
 			'security_txt'  => '/.well-known/security.txt',
 			'api_catalog'   => '/.well-known/api-catalog',
 			'agent_skills'  => '/.well-known/agent-skills/index.json',
+			'openapi'       => '/openapi.json',
+			// The manifest rather than the endpoint itself: the endpoint only answers POST, so a
+			// "View" link to it would open a browser tab on an error.
+			'mcp_server'    => '/.well-known/mcp.json',
 		);
 	}
 

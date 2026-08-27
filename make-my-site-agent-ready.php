@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
- * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.19.0
+ * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, an OpenAPI spec, a read-only MCP server, agent-recoverable 404s, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
+ * Version:           1.20.1
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.19.0' );
+define( 'MMSAR_VERSION', '1.20.1' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -39,6 +39,9 @@ require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-server.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-llms-txt.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-endpoints.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-skills.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-openapi.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-mcp.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-not-found.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-robots-allow.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-structured-data.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-admin.php';
@@ -74,6 +77,14 @@ function mmsar_get_feature_keys() {
 		'security_txt'         => true,
 		'api_catalog'          => true,
 		'agent_skills'         => true,
+		// Both add a new URL without altering any existing response, so they are on by default.
+		'openapi'              => true,
+		'agent_404'            => true,
+		// The one feature here that opens a new *interactive* surface rather than publishing a
+		// document: an unauthenticated endpoint that runs database queries on request. Everything it
+		// can reach is already public, and it is rate-limited, but adding an endpoint like that to
+		// someone's site without being asked is not this plugin's call to make. Off by default.
+		'mcp_server'           => false,
 		// Also off by default, and for a different reason: it writes rows into the Activity Log
 		// plugin's table, which is the owner's data store rather than ours. Nothing should start
 		// filling someone's log uninvited.
@@ -204,6 +215,7 @@ function mmsar_check_version() {
 	if ( MMSAR_VERSION !== $stored ) {
 		delete_transient( 'llmmd_llms_txt' );
 		delete_transient( 'mmsar_llms_full_txt' );
+		MMSAR_OpenAPI::flush();
 		update_option( 'llmmd_version', MMSAR_VERSION );
 		// Any version bump may have added new rewrite rules (e.g. new /.well-known/ endpoints).
 		// Updating a plugin's files in place does not re-fire register_activation_hook, so this
@@ -305,6 +317,9 @@ function mmsar_prevent_canonical_redirect( $redirect_url ) {
 	$plugin_paths = array(
 		'/llms.txt',
 		'/llms-full.txt',
+		'/openapi.json',
+		'/.well-known/openapi.json',
+		'/.well-known/mcp.json',
 		'/.well-known/security.txt',
 		'/.well-known/api-catalog',
 		'/.well-known/agent-skills/index.json',
@@ -335,6 +350,15 @@ if ( mmsar_feature_enabled( 'agent_skills' ) ) {
 // Endpoints covers llms-full.txt, security.txt, api-catalog and the robots.txt rewrite, and gates
 // each one individually inside.
 MMSAR_Endpoints::init();
+if ( mmsar_feature_enabled( 'openapi' ) ) {
+	MMSAR_OpenAPI::init();
+}
+if ( mmsar_feature_enabled( 'mcp_server' ) ) {
+	MMSAR_MCP::init();
+}
+if ( mmsar_feature_enabled( 'agent_404' ) ) {
+	MMSAR_Not_Found::init();
+}
 MMSAR_Negotiation_Check::init();
 MMSAR_Agent_Log::init();
 MMSAR_Agent_Log_Page::init();
@@ -449,6 +473,14 @@ function mmsar_send_link_headers() {
 	}
 	if ( mmsar_feature_enabled( 'agent_skills' ) ) {
 		header( 'Link: <' . esc_url_raw( home_url( '/.well-known/agent-skills/index.json' ) ) . '>; rel="service-desc"', false );
+	}
+	// The OpenAPI document is the other service description, and the one an HTTP client can act on
+	// without a model in the loop, so it carries its media type where the Agent Skills index does not.
+	if ( mmsar_feature_enabled( 'openapi' ) && MMSAR_OpenAPI::is_serving() ) {
+		header( 'Link: <' . esc_url_raw( MMSAR_OpenAPI::url() ) . '>; rel="service-desc"; type="application/vnd.oai.openapi+json"', false );
+	}
+	if ( mmsar_feature_enabled( 'mcp_server' ) ) {
+		header( 'Link: <' . esc_url_raw( home_url( '/.well-known/mcp.json' ) ) . '>; rel="service-desc"; type="application/json"', false );
 	}
 	// rel="describedby" and type="text/plain" both match how the api-catalog already lists llms.txt,
 	// so an agent reading the header and an agent reading the catalog are told the same thing.

@@ -590,7 +590,7 @@ class MMSAR_Agent_Log {
 	 *
 	 * @return string
 	 */
-	private static function client_ip() {
+	public static function client_ip() {
 		if ( ! empty( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ) {
 			$ip = sanitize_text_field( wp_unslash( $_SERVER['HTTP_CF_CONNECTING_IP'] ) );
 		} elseif ( ! empty( $_SERVER['REMOTE_ADDR'] ) ) {

@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.20.1 — 2026-08-27
+
+Follow-up to 1.20.0, driven by re-scanning miriamschwab.me with it installed. The score moved 56 → 68, and the remaining findings split cleanly into two piles: conventions with no published spec behind them, which were left alone, and one real gap, which is fixed here.
+
+### New
+
+- **A 404 answers in JSON when the request asks for JSON.** The gap was visible in the scan and real underneath it: readiness scanners probe `/api`, `/api/v1` and `/v1` looking for an API root, and every one of those came back as a themed HTML error page. That is the failure "agents can't parse HTML error pages" actually describes — not that WordPress returns bad errors, but that a client calling what it believes is an API gets markup and cannot tell a wrong URL from a broken server. The body uses the same `code` / `message` / `data.status` shape as the REST API, so one error format now covers the whole site rather than just `/wp-json/`, and carries a `links` array with the same destinations the response already sends as `Link` headers.
+- The `Accept` test is the same strict one the Markdown paths use, generalized: the type has to be named and has to outrank HTML, a wildcard counts towards HTML and never towards the requested type, and a tie goes to HTML. A browser's `Accept` leads with `text/html` and reaches JSON only through a low-q wildcard, so it can never match — which is what keeps a person from being handed a file download in place of a page.
+- **The MCP manifest carries the site icon.** A directory listing the server shows whatever branding it can find, and a name with no mark beside it reads as an unfinished entry. `get_site_icon_url()` is the one image every WordPress site is prompted for during setup, so it is the one most likely to exist.
+
+### Changed
+
+- **Tool input schemas are closed** (`additionalProperties: false`), and `get_site_overview` — which takes nothing — now says so with an explicit empty, closed object rather than a bare `properties: {}`. That reads to some clients as "schema not supplied" and to a model as an invitation to guess an argument the tool will ignore.
+- **The OpenAPI document references its `Error` schema everywhere that shape is genuinely returned**, which after the JSON 404 is everywhere except the `.md` addresses. Those are the deliberate exception and now say so: a client that asked for a `.md` URL wants Markdown, and gets Markdown even when the answer is "nothing here". The point of the change is that the reference became accurate — the schema was already defined, and describing responses the site did not actually return would have been worse than leaving the gap.
+
+### Not done, and why
+
+- **`/.well-known/mcp/server-card.json`** and **MCP Apps `ui://` resources** are both scored, and both were left alone. Neither names a published spec — the scanner's own check metadata lists no `specUrl` for either — and this plugin ships to other people's sites. Publishing an undocumented well-known file on someone else's domain because one scanner rewards it is not a trade this plugin should make on their behalf.
+
+## 1.20.0 — 2026-08-27
+
+### New
+
+- **An OpenAPI specification at `/openapi.json`.** Everything this plugin published up to now describes the site to a reader — api-catalog is a list of links, llms.txt is prose, SKILL.md is instructions for a model. None of them is a contract an HTTP client can turn into a working request without a human or a model in the loop, and OpenAPI is the format that is. The document is generated rather than authored: paths come from the feature toggles, the REST routes come from `rest_get_server()->get_routes()` on the actual install, and the rest comes from the endpoint registry. Nothing is documented that the site does not answer — a spec that names an endpoint returning 404 is worse than no spec, because an agent will build a request from it.
+- The REST section is a curated list of read routes, not the whole route table. A normal install's REST index runs to hundreds of kilobytes, which is useless to an agent: it exhausts the context before it says anything. Seven routes cover "what content is on this site", which is what an agent fetching a spec from a content site is nearly always asking.
+- The `Error` schema is stated explicitly, with `code`, `message` and `data.status`. WordPress's REST API has always returned structured JSON errors and has never said so anywhere machine-readable, so an agent had to discover it by failing once. `security: []` is set at the root for the same reason — a spec with no `security` field cannot be distinguished from one whose author forgot it, and the safe assumption an agent makes is that it needs credentials it does not have.
+- The rewrite rule stands down if a real `openapi.json` exists in the site root. A rule registered at the top of the stack beats a file on disk, so registering one unconditionally would replace someone's hand-written description of their API with a generated description of their blog.
+
+- **A read-only MCP server, off by default.** Every other surface here is a document an agent has to find, fetch and interpret. MCP is the other half: a connection opened once, asked what it can do, and then called. For a content site the answer is small and stable — search it, list it, read a page, describe the site — which is exactly what an agent otherwise reconstructs by crawling. Transport is Streamable HTTP; the endpoint answers with a plain JSON body rather than an SSE stream, which the spec permits and which is honest here, because every tool returns a complete result in one step and there is nothing to stream.
+- Three limits, all because the endpoint is unauthenticated and world-reachable: read-only with no tool capable of anything else; published content only, from the enabled post types, skipping password-protected posts, so it reaches nothing `llms-full.txt` does not already publish; and rate-limited per IP, because unlike a static document these calls run queries. `resources/read` serves only the URIs the server itself advertises — reading an arbitrary URI on request would turn a public endpoint into a request proxy, which is how a public MCP server becomes an SSRF vector.
+- Off by default is the point of difference from the rest of the plugin. Everything else added here publishes a file; this answers requests by running queries, and adding an endpoint like that to someone's site uninvited is not the plugin's call.
+- A discovery manifest is served at `/.well-known/mcp.json`. MCP has no ratified well-known location — the spec covers the connection, not how a client holding only a domain name finds one — so this follows the de-facto convention that directories and readiness scanners actually look for, and repeats the endpoint URL at the top level so a client that disagrees about the document's shape can still pull the URL out of it.
+
+- **Agent-recoverable 404s.** A person who lands on a 404 has a back button, a nav bar and a search box. An agent has whatever is in the response, and the usual WordPress 404 gives it a themed HTML page whose only machine-readable content is the status code — correct, and useless. It knows the URL was wrong; it has no idea what the right one might be. Every 404 now carries `Link` headers and `<link>` elements pointing at the sitemap, llms.txt, the OpenAPI document and the endpoint catalog, and a request that explicitly asked for Markdown gets a short list of those destinations in place of the error page. Headers as well as markup because headers survive a HEAD request, a discarded non-200 body, and a client that never parses HTML.
+- Nothing about this changes what a browser gets. Markdown is served only to a request that named `text/markdown` and ranked it above HTML — the same strict test the page-level negotiation uses, where a wildcard counts towards HTML and a tie goes to HTML.
+
+- **llms.txt opens with a "For agents" section** naming the machine-readable endpoints the site publishes — the Markdown mirror, llms-full.txt, the OpenAPI document, the MCP server, the catalog. It is the file an agent is most likely to fetch first, and it was the one file that said nothing about the rest of them: an agent could read the whole index and never learn there was an API to call.
+
+### Changed
+
+- A missing `.md` URL returns the same recovery list rather than a single sentence, and distinguishes its cases: no published page at that path, a page whose post type has Markdown switched off (with a pointer to the HTML version), and a page with nothing to convert. A client that asked for `/nothing-here.md` has already shown it is not a person, so the body is better spent on where to go next.
+
 ## 1.19.0 — 2026-08-26
 
 ### New

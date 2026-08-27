@@ -293,13 +293,32 @@ class MMSAR_Endpoints {
 			$entry['describedby'] = $describedby;
 		}
 
+		// service-desc is the relation for a machine-readable description of the service, and this
+		// site can publish up to three of them, each aimed at a different kind of client: the Agent
+		// Skills index for a model, OpenAPI for an HTTP client, and the MCP manifest for an agent
+		// that would rather hold a connection than make requests. All three are listed under the
+		// same relation because that is what each of them is; the `type` is what tells them apart.
+		$service_desc = array();
 		if ( mmsar_feature_enabled( 'agent_skills' ) ) {
-			$entry['service-desc'] = array(
-				array(
-					'href' => home_url( '/.well-known/agent-skills/index.json' ),
-					'type' => 'application/json',
-				),
+			$service_desc[] = array(
+				'href' => home_url( '/.well-known/agent-skills/index.json' ),
+				'type' => 'application/json',
 			);
+		}
+		if ( mmsar_feature_enabled( 'openapi' ) && MMSAR_OpenAPI::is_serving() ) {
+			$service_desc[] = array(
+				'href' => MMSAR_OpenAPI::url(),
+				'type' => 'application/vnd.oai.openapi+json',
+			);
+		}
+		if ( mmsar_feature_enabled( 'mcp_server' ) ) {
+			$service_desc[] = array(
+				'href' => home_url( '/.well-known/mcp.json' ),
+				'type' => 'application/json',
+			);
+		}
+		if ( $service_desc ) {
+			$entry['service-desc'] = $service_desc;
 		}
 
 		$items = array();

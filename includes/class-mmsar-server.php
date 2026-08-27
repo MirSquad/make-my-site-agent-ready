@@ -86,10 +86,7 @@ class MMSAR_Server {
 
 		$post_id = self::resolve_post_id();
 		if ( ! $post_id ) {
-			status_header( 404 );
-			echo '# 404 Not Found' . "\n\n";
-			echo esc_html__( 'The requested content was not found.', 'make-my-site-agent-ready' ) . "\n";
-			exit;
+			self::not_found( __( 'There is no published page at this path.', 'make-my-site-agent-ready' ) );
 		}
 
 		$post = get_post( $post_id );
@@ -99,10 +96,7 @@ class MMSAR_Server {
 		// pending, private or trashed post could otherwise slip through even though its markdown is
 		// never cached. Treat anything not published as not found.
 		if ( ! $post || 'publish' !== $post->post_status ) {
-			status_header( 404 );
-			echo '# 404 Not Found' . "\n\n";
-			echo esc_html__( 'The requested content was not found.', 'make-my-site-agent-ready' ) . "\n";
-			exit;
+			self::not_found( __( 'There is no published page at this path.', 'make-my-site-agent-ready' ) );
 		}
 
 		if ( ! empty( $post->post_password ) ) {
@@ -113,10 +107,7 @@ class MMSAR_Server {
 		}
 
 		if ( ! in_array( $post->post_type, mmsar_get_enabled_post_types(), true ) ) {
-			status_header( 404 );
-			echo '# 404 Not Found' . "\n\n";
-			echo esc_html__( 'Markdown is not available for this content type.', 'make-my-site-agent-ready' ) . "\n";
-			exit;
+			self::not_found( __( 'That page exists, but this site does not publish Markdown for its content type. Fetch the HTML page instead.', 'make-my-site-agent-ready' ) );
 		}
 
 		$markdown = get_post_meta( $post_id, '_llmmd_content', true );
@@ -129,10 +120,7 @@ class MMSAR_Server {
 		}
 
 		if ( empty( $markdown ) ) {
-			status_header( 404 );
-			echo '# 404 Not Found' . "\n\n";
-			echo esc_html__( 'No content available.', 'make-my-site-agent-ready' ) . "\n";
-			exit;
+			self::not_found( __( 'That page exists but has no text content to return.', 'make-my-site-agent-ready' ) );
 		}
 
 		header( 'Content-Type: text/markdown; charset=UTF-8' );
@@ -144,6 +132,37 @@ class MMSAR_Server {
 
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw markdown as text/markdown, not HTML.
 		echo $markdown;
+		exit;
+	}
+
+	/**
+	 * End the request with a Markdown 404 that says where to look instead.
+	 *
+	 * A client that asked for `/nothing-here.md` has already shown it prefers Markdown and is
+	 * probably not a person, so the body is worth spending on recovery links rather than on the
+	 * single sentence this used to return. The body comes from MMSAR_Not_Found so a missing `.md`
+	 * URL and a missing HTML URL give an agent the same instructions.
+	 *
+	 * Does not return.
+	 *
+	 * @param string $reason One sentence on why there is nothing here.
+	 * @return void
+	 */
+	private static function not_found( $reason ) {
+		header( 'Content-Type: text/markdown; charset=UTF-8' );
+		header( 'X-Content-Type-Options: nosniff' );
+		header( 'X-Robots-Tag: noindex' );
+		status_header( 404 );
+
+		// The recovery links are the 404 feature's job, and it can be switched off. Fall back to the
+		// bare message rather than to nothing, so this response is never empty.
+		if ( mmsar_feature_enabled( 'agent_404' ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw markdown as text/markdown, not HTML.
+			echo MMSAR_Not_Found::body( '404 Not Found', $reason );
+		} else {
+			echo '# 404 Not Found' . "\n\n";
+			echo esc_html( $reason ) . "\n";
+		}
 		exit;
 	}
 
