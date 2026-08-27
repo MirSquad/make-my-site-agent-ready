@@ -287,7 +287,13 @@ class MMSAR_OpenAPI {
 		}
 		$lines[] = '- To search or filter, use the JSON routes under `/wp-json/wp/v2/`.';
 		$lines[] = '';
-		$lines[] = '**Errors** are always JSON, never an HTML page. Every failing request returns an object with `code`, `message` and `data.status` — see the `Error` schema.';
+		$lines[] = '**Errors** are always JSON, never an HTML page. Every failing request returns an object with `code`, `message` and `data.status` — see the `Error` schema. Send `Accept: application/json` to get that shape from any URL on this site, including one that is not a documented route.';
+		$lines[] = '';
+		$lines[] = '**Authentication:** none, anywhere. The root `security: []` says so formally; [`/auth.md`](' . MMSAR_Auth_Md::url() . ') says so in prose, including what to do about the one endpoint that uses a single-use token.';
+		$lines[] = '';
+		$lines[] = '**Rate limits:** only the MCP endpoint is limited. It returns `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` on every response, and `Retry-After` on a 429, so you can pace yourself rather than discover the limit by hitting it. The plain HTTP routes are unlimited.';
+		$lines[] = '';
+		$lines[] = '**Versioning:** this description is regenerated from the live site, so it always matches what is deployed. Paths under `/wp-json/` carry their own version segment. Nothing here is scheduled for removal; if that changes, retiring routes will carry `Deprecation` and `Sunset` headers (RFC 9745 / RFC 8594) before they stop working.';
 
 		return implode( "\n", $lines );
 	}
@@ -393,7 +399,9 @@ class MMSAR_OpenAPI {
 					// site's 404 handler answers a JSON-preferring request with the same Error
 					// shape as every other endpoint here, so the reference is accurate rather than
 					// aspirational — see MMSAR_Not_Found.
-					'404' => array( '$ref' => '#/components/responses/Error' ),
+					'404'     => array( '$ref' => '#/components/responses/Error' ),
+					'5XX'     => array( '$ref' => '#/components/responses/Error' ),
+					'default' => array( '$ref' => '#/components/responses/Error' ),
 				),
 			),
 		);
@@ -444,6 +452,7 @@ class MMSAR_OpenAPI {
 							'description' => 'No published page at that path, or Markdown is not available for its post type. Returned as Markdown, not JSON, with links to where the content might be instead.',
 							'content'     => array( 'text/markdown' => array( 'schema' => array( 'type' => 'string' ) ) ),
 						),
+						'5XX' => array( '$ref' => '#/components/responses/Error' ),
 					),
 				),
 			),
@@ -508,6 +517,9 @@ class MMSAR_OpenAPI {
 					),
 					'400'     => array( '$ref' => '#/components/responses/Error' ),
 					'404'     => array( '$ref' => '#/components/responses/Error' ),
+					'429'     => array( '$ref' => '#/components/responses/Error' ),
+					'4XX'     => array( '$ref' => '#/components/responses/Error' ),
+					'5XX'     => array( '$ref' => '#/components/responses/Error' ),
 					'default' => array( '$ref' => '#/components/responses/Error' ),
 				),
 			);
@@ -629,7 +641,8 @@ class MMSAR_OpenAPI {
 					// so a client can react without parsing. Both of these come back as JSON-RPC
 					// error objects rather than the site's own Error schema.
 					'400' => array( 'description' => 'The body was not valid JSON. Returned as a JSON-RPC error object with code -32700.' ),
-					'429' => array( 'description' => 'Rate limit exceeded. Returned as a JSON-RPC error object with code -32000.' ),
+					'429' => array( 'description' => 'Rate limit exceeded. Returned as a JSON-RPC error object with code -32000. Read `RateLimit-Reset` and `Retry-After` before retrying.' ),
+					'5XX' => array( '$ref' => '#/components/responses/Error' ),
 				),
 			),
 		);
@@ -689,6 +702,7 @@ class MMSAR_OpenAPI {
 						// records what an endpoint accepts, not which codes it rejects with, and
 						// naming a specific one would be inventing detail the site never supplied.
 						'4XX'     => array( '$ref' => '#/components/responses/Error' ),
+						'5XX'     => array( '$ref' => '#/components/responses/Error' ),
 						'default' => array( '$ref' => '#/components/responses/Error' ),
 					),
 				);

@@ -1,0 +1,493 @@
+<?php
+/**
+ * NLWeb: a `/ask` endpoint and a Schema Map, per Microsoft's NLWeb protocol.
+ *
+ * NLWeb's premise is that a site should be able to answer a question about itself at a predictable
+ * address, in a predictable shape, without the caller knowing anything about how the site is built.
+ * That is a reasonable thing for a content site to offer and cheap to provide honestly: the answer
+ * here is a ranked list of pages, which is what a WordPress site can actually produce.
+ *
+ * What this deliberately does not do is pretend to synthesize an answer. There is no model behind
+ * this endpoint, and `_meta.response_type` says so — callers get `list` rather than `summary`, so an
+ * agent knows it is receiving retrieval results to read rather than a prose answer to quote. A
+ * generated summary would need an API key, a per-request cost and a hallucination budget, none of
+ * which belong in a plugin that otherwise only ever serves files.
+ *
+ * Spec: https://github.com/microsoft/NLWeb
+ *
+ * @package Make_My_Site_Agent_Ready
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * MMSAR NLWeb handler.
+ */
+class MMSAR_NLWeb {
+
+	/**
+	 * Protocol version reported in every `_meta` block.
+	 */
+	const VERSION = '0.1';
+
+	/**
+	 * Largest result set returned, whatever is asked for.
+	 */
+	const MAX_RESULTS = 25;
+
+	/**
+	 * Init.
+	 *
+	 * @return void
+	 */
+	public static function init() {
+		add_action( 'init', array( __CLASS__, 'add_rewrite_rules' ) );
+		add_filter( 'query_vars', array( __CLASS__, 'add_query_vars' ) );
+		add_action( 'template_redirect', array( __CLASS__, 'serve' ) );
+		add_filter( 'robots_txt', array( __CLASS__, 'add_schemamap_directive' ), PHP_INT_MAX );
+	}
+
+	/**
+	 * Whether this site should answer at /ask.
+	 *
+	 * A page or post already published at that slug wins. The endpoint is a convenience; someone's
+	 * actual content is not, and a rewrite rule registered at the top of the stack would shadow it
+	 * silently.
+	 *
+	 * @return bool
+	 */
+	public static function is_serving() {
+		if ( get_page_by_path( 'ask', OBJECT, get_post_types( array( 'public' => true ) ) ) ) {
+			return false;
+		}
+		/**
+		 * Filters whether the NLWeb /ask endpoint is served.
+		 *
+		 * @param bool $is_serving Whether to serve it.
+		 */
+		return (bool) apply_filters( 'mmsar_nlweb_is_serving', true );
+	}
+
+	/**
+	 * Add rewrite rules.
+	 *
+	 * @return void
+	 */
+	public static function add_rewrite_rules() {
+		if ( self::is_serving() ) {
+			add_rewrite_rule( '^ask/?$', 'index.php?mmsar_nlweb_ask=1', 'top' );
+		}
+		add_rewrite_rule( '^schema-map\.xml$', 'index.php?mmsar_schema_map=1', 'top' );
+	}
+
+	/**
+	 * Add query vars.
+	 *
+	 * @param array $vars Query vars.
+	 * @return array Query vars.
+	 */
+	public static function add_query_vars( $vars ) {
+		$vars[] = 'mmsar_nlweb_ask';
+		$vars[] = 'mmsar_schema_map';
+		return $vars;
+	}
+
+	/**
+	 * The /ask endpoint URL.
+	 *
+	 * @return string Absolute URL.
+	 */
+	public static function ask_url() {
+		return home_url( '/ask' );
+	}
+
+	/**
+	 * The Schema Map URL.
+	 *
+	 * @return string Absolute URL.
+	 */
+	public static function schema_map_url() {
+		return home_url( '/schema-map.xml' );
+	}
+
+	/**
+	 * Serve.
+	 *
+	 * @return void
+	 */
+	public static function serve() {
+		if ( get_query_var( 'mmsar_nlweb_ask' ) ) {
+			self::serve_ask();
+		}
+		if ( get_query_var( 'mmsar_schema_map' ) ) {
+			self::serve_schema_map();
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// /ask
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Answer a question about this site.
+	 *
+	 * @return void
+	 */
+	private static function serve_ask() {
+		$query     = self::read_query();
+		$streaming = self::wants_streaming();
+
+		if ( '' === $query ) {
+			header( 'Content-Type: application/json; charset=UTF-8' );
+			header( 'Access-Control-Allow-Origin: *' );
+			status_header( 400 );
+			echo wp_json_encode(
+				array(
+					'code'    => 'missing_query',
+					'message' => 'Provide a question. Send `query` as a JSON body field, a form field, or a query-string parameter.',
+					'data'    => array( 'status' => 400 ),
+					'_meta'   => self::meta( 'error' ),
+				),
+				JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+			);
+			exit;
+		}
+
+		$results = self::search( $query );
+		MMSAR_Agent_Log::record( 'nlweb /ask' );
+
+		if ( $streaming ) {
+			self::stream( $query, $results );
+		}
+
+		header( 'Content-Type: application/json; charset=UTF-8' );
+		header( 'Access-Control-Allow-Origin: *' );
+		header( 'Cache-Control: private, no-store, max-age=0' );
+		status_header( 200 );
+		echo wp_json_encode(
+			array(
+				'query_id' => self::query_id( $query ),
+				'query'    => $query,
+				'results'  => $results,
+				'_meta'    => self::meta( 'list' ),
+			),
+			JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+		);
+		exit;
+	}
+
+	/**
+	 * The `_meta` block every response carries.
+	 *
+	 * `response_type` is `list` rather than `summary` on purpose — see the class docblock. Saying so
+	 * in the response is what lets a caller treat these as sources to read rather than as an answer.
+	 *
+	 * @param string $response_type NLWeb response type.
+	 * @return array Meta block.
+	 */
+	private static function meta( $response_type ) {
+		return array(
+			'response_type' => $response_type,
+			'version'       => self::VERSION,
+			'site'          => wp_parse_url( home_url( '/' ), PHP_URL_HOST ),
+			'generated_by'  => 'make-my-site-agent-ready/' . MMSAR_VERSION,
+			'note'          => 'Retrieval only. These are ranked pages from this site, not a generated answer — fetch the URLs to read them.',
+		);
+	}
+
+	/**
+	 * A stable id for a query, so a caller can correlate a stream with its JSON response.
+	 *
+	 * @param string $query The query.
+	 * @return string Query id.
+	 */
+	private static function query_id( $query ) {
+		return substr( md5( $query . '|' . gmdate( 'Y-m-d' ) ), 0, 16 );
+	}
+
+	/**
+	 * The question, from wherever the caller put it.
+	 *
+	 * NLWeb clients variously POST JSON, POST a form, or GET a query string, and all three are cheap
+	 * to accept.
+	 *
+	 * @return string The query.
+	 */
+	private static function read_query() {
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing -- Public read-only search endpoint; no state is changed and no nonce can exist for an external agent.
+		foreach ( array( 'query', 'q', 'question' ) as $key ) {
+			if ( isset( $_GET[ $key ] ) ) {
+				return trim( sanitize_text_field( wp_unslash( $_GET[ $key ] ) ) );
+			}
+			if ( isset( $_POST[ $key ] ) ) {
+				return trim( sanitize_text_field( wp_unslash( $_POST[ $key ] ) ) );
+			}
+		}
+		// phpcs:enable
+
+		$raw = file_get_contents( 'php://input' );
+		if ( ! $raw ) {
+			return '';
+		}
+		$body = json_decode( $raw, true );
+		if ( ! is_array( $body ) ) {
+			return '';
+		}
+		foreach ( array( 'query', 'q', 'question' ) as $key ) {
+			if ( ! empty( $body[ $key ] ) && is_string( $body[ $key ] ) ) {
+				return trim( sanitize_text_field( $body[ $key ] ) );
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Whether the caller asked for a stream.
+	 *
+	 * @return bool
+	 */
+	private static function wants_streaming() {
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing -- Read-only response-format selector.
+		if ( isset( $_GET['streaming'] ) && 'false' !== $_GET['streaming'] ) {
+			return true;
+		}
+		// phpcs:enable
+		$accept = isset( $_SERVER['HTTP_ACCEPT'] ) ? strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_ACCEPT'] ) ) ) : '';
+		if ( false !== strpos( $accept, 'text/event-stream' ) ) {
+			return true;
+		}
+		// NLWeb signals streaming through the `prefer` field of a JSON body, and RFC 8594's `Prefer`
+		// header is the natural HTTP spelling of the same thing. Accept either.
+		$prefer = isset( $_SERVER['HTTP_PREFER'] ) ? strtolower( sanitize_text_field( wp_unslash( $_SERVER['HTTP_PREFER'] ) ) ) : '';
+		if ( false !== strpos( $prefer, 'streaming' ) ) {
+			return true;
+		}
+
+		$raw = file_get_contents( 'php://input' );
+		if ( $raw ) {
+			$body = json_decode( $raw, true );
+			if ( is_array( $body ) ) {
+				if ( ! empty( $body['streaming'] ) ) {
+					return true;
+				}
+				if ( isset( $body['prefer'] ) && is_array( $body['prefer'] ) && ! empty( $body['prefer']['streaming'] ) ) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Emit the answer as Server-Sent Events.
+	 *
+	 * Does not return.
+	 *
+	 * @param string $query   The query.
+	 * @param array  $results Results.
+	 * @return void
+	 */
+	private static function stream( $query, $results ) {
+		header( 'Content-Type: text/event-stream; charset=UTF-8' );
+		header( 'Cache-Control: no-cache, no-store, max-age=0' );
+		header( 'Connection: keep-alive' );
+		// Nginx buffers event streams by default, which turns an SSE response into one delivery at
+		// the end — technically the same bytes, but it defeats the point of streaming.
+		header( 'X-Accel-Buffering: no' );
+		header( 'Access-Control-Allow-Origin: *' );
+		status_header( 200 );
+
+		self::send_event(
+			'start',
+			array(
+				'query_id' => self::query_id( $query ),
+				'query'    => $query,
+				'_meta'    => self::meta( 'list' ),
+			)
+		);
+		foreach ( $results as $result ) {
+			self::send_event( 'result', $result );
+		}
+		self::send_event(
+			'complete',
+			array(
+				'query_id' => self::query_id( $query ),
+				'count'    => count( $results ),
+				'_meta'    => self::meta( 'list' ),
+			)
+		);
+		exit;
+	}
+
+	/**
+	 * Write one SSE event and push it out.
+	 *
+	 * @param string $event Event name.
+	 * @param array  $data  Payload.
+	 * @return void
+	 */
+	private static function send_event( $event, $data ) {
+		echo 'event: ' . esc_html( $event ) . "\n";
+		echo 'data: ' . wp_json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) . "\n\n";
+		if ( ob_get_level() > 0 ) {
+			@ob_flush(); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Harmless when no buffer is active; the alternative is a fatal on some SAPIs.
+		}
+		flush();
+	}
+
+	/**
+	 * Rank this site's content against a query.
+	 *
+	 * @param string $query The query.
+	 * @return array[] NLWeb result objects.
+	 */
+	private static function search( $query ) {
+		$posts = get_posts(
+			array(
+				'post_type'           => mmsar_get_enabled_post_types(),
+				'post_status'         => 'publish',
+				's'                   => $query,
+				'posts_per_page'      => self::MAX_RESULTS,
+				'has_password'        => false,
+				'ignore_sticky_posts' => true,
+				'no_found_rows'       => true,
+			)
+		);
+
+		$site    = wp_parse_url( home_url( '/' ), PHP_URL_HOST );
+		$results = array();
+		$rank    = 0;
+		$total   = count( $posts );
+
+		foreach ( $posts as $post ) {
+			$rank++;
+			$url   = get_permalink( $post );
+			$title = html_entity_decode( get_the_title( $post ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+			$excerpt = has_excerpt( $post )
+				? $post->post_excerpt
+				: wp_trim_words( wp_strip_all_tags( strip_shortcodes( $post->post_content ) ), 45, '…' );
+			$excerpt = trim( html_entity_decode( wp_strip_all_tags( $excerpt ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+
+			$results[] = array(
+				'url'         => $url,
+				'name'        => $title,
+				'site'        => $site,
+				// Rank expressed as a descending score, because that is the shape NLWeb callers sort
+				// on. It reflects WordPress's relevance ordering, not a semantic similarity — there
+				// is no embedding here and a score that implied one would be misleading.
+				'score'       => $total > 0 ? round( 1 - ( ( $rank - 1 ) / max( $total, 1 ) ), 4 ) : 0,
+				'description' => $excerpt,
+				'schema_object' => array(
+					'@context'      => 'https://schema.org',
+					'@type'         => 'Article',
+					'name'          => $title,
+					'url'           => $url,
+					'datePublished' => get_the_date( 'c', $post ),
+					'dateModified'  => get_the_modified_date( 'c', $post ),
+					'description'   => $excerpt,
+				),
+				// The plugin's own contribution to the shape: the address of this page's Markdown,
+				// so a caller that wants the full text does not have to fetch and strip the HTML.
+				'markdown_url'  => mmsar_feature_enabled( 'markdown' ) ? rtrim( $url, '/' ) . '.md' : null,
+			);
+		}
+
+		return $results;
+	}
+
+	// -------------------------------------------------------------------------
+	// Schema Map
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Add the `schemamap:` directive to robots.txt.
+	 *
+	 * @param string $output The robots.txt content.
+	 * @return string The robots.txt content.
+	 */
+	public static function add_schemamap_directive( $output ) {
+		if ( false !== stripos( $output, 'schemamap:' ) ) {
+			return $output;
+		}
+		return rtrim( $output, "\n" ) . "\n\nSchemamap: " . self::schema_map_url() . "\n";
+	}
+
+	/**
+	 * Serve the Schema Map.
+	 *
+	 * Lists the structured feeds of this site's content, so a crawler building an index can take
+	 * them wholesale instead of walking every page.
+	 *
+	 * @return void
+	 */
+	private static function serve_schema_map() {
+		$feeds = array(
+			array(
+				'loc'      => home_url( '/feed/' ),
+				'type'     => 'application/rss+xml',
+				'lastmod'  => self::last_modified(),
+			),
+		);
+		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {
+			$feeds[] = array(
+				'loc'     => home_url( '/llms-full.txt' ),
+				'type'    => 'text/plain',
+				'lastmod' => self::last_modified(),
+			);
+		}
+		if ( self::is_serving() ) {
+			$feeds[] = array(
+				'loc'     => self::ask_url(),
+				'type'    => 'application/json',
+				'lastmod' => self::last_modified(),
+			);
+		}
+
+		/**
+		 * Filters the feeds listed in the Schema Map.
+		 *
+		 * @param array[] $feeds Each with 'loc', 'type' and 'lastmod'.
+		 */
+		$feeds = apply_filters( 'mmsar_schema_map_feeds', $feeds );
+
+		mmsar_send_cache_headers();
+		header( 'Content-Type: application/xml; charset=UTF-8' );
+		MMSAR_Agent_Log::record( 'schema-map.xml' );
+		header( 'Access-Control-Allow-Origin: *' );
+		status_header( 200 );
+
+		echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+		echo '<schemamap xmlns="http://www.nlweb.ai/schemas/schemamap/1.0">' . "\n";
+		foreach ( $feeds as $feed ) {
+			echo "  <feed>\n";
+			echo '    <loc>' . esc_url( $feed['loc'] ) . "</loc>\n";
+			echo '    <type>' . esc_html( $feed['type'] ) . "</type>\n";
+			echo '    <lastmod>' . esc_html( $feed['lastmod'] ) . "</lastmod>\n";
+			echo "  </feed>\n";
+		}
+		echo '</schemamap>' . "\n";
+		exit;
+	}
+
+	/**
+	 * When this site's content last changed, as an ISO 8601 date.
+	 *
+	 * @return string Date.
+	 */
+	private static function last_modified() {
+		$latest = get_posts(
+			array(
+				'post_type'      => mmsar_get_enabled_post_types(),
+				'post_status'    => 'publish',
+				'posts_per_page' => 1,
+				'orderby'        => 'modified',
+				'order'          => 'DESC',
+				'no_found_rows'  => true,
+			)
+		);
+		return $latest ? get_the_modified_date( 'c', $latest[0] ) : gmdate( 'c' );
+	}
+}

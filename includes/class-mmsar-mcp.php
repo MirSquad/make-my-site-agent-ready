@@ -124,10 +124,14 @@ class MMSAR_MCP {
 	 * @return WP_REST_Response Response.
 	 */
 	public static function handle( WP_REST_Request $request ) {
-		if ( ! self::within_rate_limit() ) {
+		$rate = self::consume_rate_limit();
+		if ( ! $rate['allowed'] ) {
 			// -32000 is in the JSON-RPC implementation-defined server error range. The HTTP status
 			// matters too: a client that understands 429 can back off without parsing the body.
-			return self::error_response( null, -32000, 'Rate limit exceeded. Try again shortly.', 429 );
+			return self::with_rate_limit_headers(
+				self::error_response( null, -32000, 'Rate limit exceeded. Try again in ' . $rate['reset'] . 's.', 429 ),
+				$rate
+			);
 		}
 
 		$body = $request->get_json_params();
@@ -147,16 +151,48 @@ class MMSAR_MCP {
 			}
 			// An all-notification batch has nothing to say, and the spec asks for no body at all.
 			if ( empty( $results ) ) {
-				return new WP_REST_Response( null, 202 );
+				return self::with_rate_limit_headers( new WP_REST_Response( null, 202 ), $rate );
 			}
-			return new WP_REST_Response( $results, 200 );
+			return self::with_rate_limit_headers( new WP_REST_Response( $results, 200 ), $rate );
 		}
 
 		$result = self::dispatch( $body );
 		if ( null === $result ) {
-			return new WP_REST_Response( null, 202 );
+			return self::with_rate_limit_headers( new WP_REST_Response( null, 202 ), $rate );
 		}
-		return new WP_REST_Response( $result, 200 );
+		return self::with_rate_limit_headers( new WP_REST_Response( $result, 200 ), $rate );
+	}
+
+	/**
+	 * Attach the rate-limit headers to a response.
+	 *
+	 * The point of publishing these is that an agent can pace itself instead of discovering the
+	 * limit by hitting it. Both spellings go out: the individual `RateLimit-*` fields that most
+	 * clients already read, and the single structured `RateLimit` field the IETF draft settled on.
+	 * They cost a few dozen bytes and neither is universal yet.
+	 *
+	 * @param WP_REST_Response $response The response.
+	 * @param array            $rate     State from consume_rate_limit().
+	 * @return WP_REST_Response The response.
+	 */
+	private static function with_rate_limit_headers( WP_REST_Response $response, $rate ) {
+		if ( $rate['limit'] <= 0 ) {
+			return $response;
+		}
+
+		$response->header( 'RateLimit-Limit', (string) $rate['limit'] );
+		$response->header( 'RateLimit-Remaining', (string) $rate['remaining'] );
+		$response->header( 'RateLimit-Reset', (string) $rate['reset'] );
+		$response->header( 'RateLimit-Policy', sprintf( '"mcp";q=%d;w=%d', $rate['limit'], self::RATE_WINDOW ) );
+		$response->header( 'RateLimit', sprintf( '"mcp";r=%d;t=%d', $rate['remaining'], $rate['reset'] ) );
+
+		// Retry-After is the one a client is obliged to honor, so it goes out only when there is
+		// actually something to wait for.
+		if ( ! $rate['allowed'] ) {
+			$response->header( 'Retry-After', (string) $rate['reset'] );
+		}
+
+		return $response;
 	}
 
 	/**
@@ -165,7 +201,40 @@ class MMSAR_MCP {
 	 * @return WP_REST_Response Response.
 	 */
 	public static function decline_stream() {
-		return self::error_response( null, -32000, 'This server does not offer a server-initiated event stream. POST JSON-RPC requests to this URL instead.', 405 );
+		// Carries the rate-limit headers even though it refuses the request. A client — or a scanner
+		// — that only ever issues a GET against this URL would otherwise never see the policy, and
+		// the policy applies to it just the same.
+		return self::with_rate_limit_headers(
+			self::error_response( null, -32000, 'This server does not offer a server-initiated event stream. POST JSON-RPC requests to this URL instead.', 405 ),
+			self::peek_rate_limit()
+		);
+	}
+
+	/**
+	 * The limiter's current state without consuming a request from it.
+	 *
+	 * Used on responses that report the policy but are not themselves a call worth counting.
+	 *
+	 * @return array{allowed:bool,limit:int,remaining:int,reset:int} Limiter state.
+	 */
+	private static function peek_rate_limit() {
+		$limit = (int) apply_filters( 'mmsar_mcp_rate_limit', self::RATE_LIMIT );
+		if ( $limit <= 0 ) {
+			return array(
+				'allowed'   => true,
+				'limit'     => 0,
+				'remaining' => 0,
+				'reset'     => 0,
+			);
+		}
+		$key   = 'mmsar_mcp_rl_' . md5( MMSAR_Agent_Log::client_ip() );
+		$count = (int) get_transient( $key );
+		return array(
+			'allowed'   => $count < $limit,
+			'limit'     => $limit,
+			'remaining' => max( 0, $limit - $count ),
+			'reset'     => self::seconds_until_reset( $key ),
+		);
 	}
 
 	/**
@@ -335,9 +404,9 @@ class MMSAR_MCP {
 	 * That trade is acceptable here only because everything past this check is published content
 	 * served from cache-friendly queries; nothing behind it needs protecting.
 	 *
-	 * @return bool True when the request may proceed.
+	 * @return array{allowed:bool,limit:int,remaining:int,reset:int} Limiter state for this request.
 	 */
-	private static function within_rate_limit() {
+	private static function consume_rate_limit() {
 		/**
 		 * Filters the number of MCP calls allowed per IP per minute.
 		 *
@@ -348,20 +417,58 @@ class MMSAR_MCP {
 		 */
 		$limit = (int) apply_filters( 'mmsar_mcp_rate_limit', self::RATE_LIMIT );
 		if ( $limit <= 0 ) {
-			return true;
+			return array(
+				'allowed'   => true,
+				'limit'     => 0,
+				'remaining' => 0,
+				'reset'     => 0,
+			);
 		}
 
 		// Shared with the agent log rather than re-derived, so the two can never disagree about who
 		// a caller is.
 		$key   = 'mmsar_mcp_rl_' . md5( MMSAR_Agent_Log::client_ip() );
 		$count = (int) get_transient( $key );
+
 		if ( $count >= $limit ) {
-			return false;
+			return array(
+				'allowed'   => false,
+				'limit'     => $limit,
+				'remaining' => 0,
+				// The transient's own TTL is the honest answer to "when may I retry", rather than a
+				// flat window length that would be wrong for every request after the first.
+				'reset'     => self::seconds_until_reset( $key ),
+			);
 		}
+
 		// The window restarts from the first request in it rather than sliding. A burst can
 		// therefore straddle two windows; that is an acceptable trade for one transient write.
 		set_transient( $key, $count + 1, self::RATE_WINDOW );
-		return true;
+
+		return array(
+			'allowed'   => true,
+			'limit'     => $limit,
+			'remaining' => max( 0, $limit - ( $count + 1 ) ),
+			'reset'     => self::seconds_until_reset( $key ),
+		);
+	}
+
+	/**
+	 * Seconds left in the current window, read from the transient's own expiry.
+	 *
+	 * Falls back to the full window when the timeout option is not readable — an external object
+	 * cache need not expose one. Over-reporting is the safe direction: a client waits slightly
+	 * longer than it had to, rather than retrying into another 429.
+	 *
+	 * @param string $key Transient key.
+	 * @return int Seconds.
+	 */
+	private static function seconds_until_reset( $key ) {
+		$timeout = get_option( '_transient_timeout_' . $key );
+		if ( ! $timeout ) {
+			return self::RATE_WINDOW;
+		}
+		return max( 1, (int) $timeout - time() );
 	}
 
 	// -------------------------------------------------------------------------
@@ -466,12 +573,18 @@ class MMSAR_MCP {
 				'name'        => 'get_site_overview',
 				'title'       => 'Site overview',
 				'description' => 'What this site is, who runs it, how much content it has, and which machine-readable endpoints it publishes. Call this once at the start if you have no context on the site.',
-				// Takes nothing. Stated as an explicitly empty, closed object rather than an open
-				// one: a bare `properties: {}` reads to some clients as "schema not supplied", and
-				// to a model as an invitation to guess an argument that will be ignored.
 				'inputSchema' => array(
-					'type'                 => 'object',
-					'properties'           => new stdClass(),
+					'type'       => 'object',
+					'properties' => array(
+						'sections' => array(
+							'type'        => 'array',
+							'description' => 'Which parts of the overview to return. Omit for all of them. Ask for a subset when you already have context and only need one thing — `endpoints` alone is a fraction of the tokens of the whole overview.',
+							'items'       => array(
+								'type' => 'string',
+								'enum' => array( 'about', 'content', 'endpoints', 'actions' ),
+							),
+						),
+					),
 					'required'             => array(),
 					'additionalProperties' => false,
 				),
@@ -482,6 +595,26 @@ class MMSAR_MCP {
 				),
 			),
 		);
+
+		// MCP Apps binds a tool to a template through `_meta`. Attached only to the two tools that
+		// return a list of things — a template that renders result cards has nothing to do with a
+		// single page's text or a site overview, and pointing every tool at it would give a host
+		// permission to render the wrong thing.
+		if ( self::ui_enabled() ) {
+			foreach ( $tools as $index => $tool ) {
+				if ( ! in_array( $tool['name'], array( 'search_content', 'list_content' ), true ) ) {
+					continue;
+				}
+				$tools[ $index ]['_meta'] = array(
+					'ui' => array(
+						'resourceUri' => self::UI_RESULTS,
+						'preferred'   => true,
+					),
+					// The OpenAI Apps SDK spelling of the same binding. Hosts read one or the other.
+					'openai/outputTemplate' => self::UI_RESULTS,
+				);
+			}
+		}
 
 		/**
 		 * Filters the tools this server advertises.
@@ -514,7 +647,7 @@ class MMSAR_MCP {
 			case 'list_content':
 				return self::tool_list( $arguments );
 			case 'get_site_overview':
-				return self::tool_overview();
+				return self::tool_overview( $arguments );
 		}
 
 		/**
@@ -536,7 +669,7 @@ class MMSAR_MCP {
 	}
 
 	/**
-	 * search_content.
+	 * Handle the search_content tool.
 	 *
 	 * @param array $arguments Tool arguments.
 	 * @return array Tool result.
@@ -584,7 +717,7 @@ class MMSAR_MCP {
 	}
 
 	/**
-	 * get_content.
+	 * Handle the get_content tool.
 	 *
 	 * @param array $arguments Tool arguments.
 	 * @return array Tool result.
@@ -621,7 +754,7 @@ class MMSAR_MCP {
 	}
 
 	/**
-	 * list_content.
+	 * Handle the list_content tool.
 	 *
 	 * @param array $arguments Tool arguments.
 	 * @return array Tool result.
@@ -668,23 +801,69 @@ class MMSAR_MCP {
 	}
 
 	/**
-	 * get_site_overview.
+	 * Handle the get_site_overview tool.
 	 *
+	 * @param array $arguments Tool arguments. Optional 'sections' narrows what comes back.
 	 * @return array Tool result.
 	 */
-	private static function tool_overview() {
-		$site_name   = html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+	private static function tool_overview( $arguments = array() ) {
+		$all    = array( 'about', 'content', 'endpoints', 'actions' );
+		$wanted = isset( $arguments['sections'] ) && is_array( $arguments['sections'] )
+			? array_intersect( $all, array_map( 'strval', $arguments['sections'] ) )
+			: $all;
+
+		// An unrecognized selection would otherwise return an empty document, which reads as "this
+		// site has nothing" rather than "you asked for a section that does not exist".
+		if ( empty( $wanted ) ) {
+			$wanted = $all;
+		}
+
+		$site_name = html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$lines     = array( '# ' . $site_name, '' );
+
+		if ( in_array( 'about', $wanted, true ) ) {
+			$lines = array_merge( $lines, self::overview_about_lines() );
+		}
+		if ( in_array( 'content', $wanted, true ) ) {
+			$lines = array_merge( $lines, self::overview_content_lines() );
+		}
+		if ( in_array( 'endpoints', $wanted, true ) ) {
+			$lines = array_merge( $lines, self::overview_endpoint_lines() );
+		}
+		if ( in_array( 'actions', $wanted, true ) ) {
+			$lines = array_merge( $lines, self::overview_action_lines() );
+		}
+
+		return self::tool_text( rtrim( implode( "\n", $lines ) ) );
+	}
+
+	/**
+	 * The overview's "about" section: what this site is and where it lives.
+	 *
+	 * @return string[] Lines.
+	 */
+	private static function overview_about_lines() {
 		$description = html_entity_decode( get_bloginfo( 'description' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 
-		$lines   = array( '# ' . $site_name, '' );
+		$lines = array();
 		if ( '' !== trim( $description ) ) {
 			$lines[] = $description;
 			$lines[] = '';
 		}
 		$lines[] = 'URL: ' . home_url( '/' );
 		$lines[] = '';
-		$lines[] = '## Content';
-		$lines[] = '';
+
+		return $lines;
+	}
+
+	/**
+	 * The overview's "content" section: how much of each type is published.
+	 *
+	 * @return string[] Lines.
+	 */
+	private static function overview_content_lines() {
+		$lines   = array( '## Content', '' );
+
 		foreach ( mmsar_get_enabled_post_types() as $post_type ) {
 			$object = get_post_type_object( $post_type );
 			$counts = wp_count_posts( $post_type );
@@ -692,28 +871,54 @@ class MMSAR_MCP {
 			$lines[] = '- ' . $label . ': ' . ( isset( $counts->publish ) ? (int) $counts->publish : 0 ) . ' published';
 		}
 		$lines[] = '';
-		$lines[] = '## Machine-readable endpoints';
-		$lines[] = '';
+
+		return $lines;
+	}
+
+	/**
+	 * The overview's "endpoints" section: the machine-readable documents this site publishes.
+	 *
+	 * @return string[] Lines.
+	 */
+	private static function overview_endpoint_lines() {
+		$lines = array( '## Machine-readable endpoints', '' );
+
 		if ( mmsar_feature_enabled( 'llms_txt' ) ) {
 			$lines[] = '- ' . home_url( '/llms.txt' ) . ' — one-line index of the site';
 		}
 		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {
 			$lines[] = '- ' . home_url( '/llms-full.txt' ) . ' — the entire site as one document';
 		}
-		if ( mmsar_feature_enabled( 'openapi' ) ) {
+		if ( mmsar_feature_enabled( 'openapi' ) && MMSAR_OpenAPI::is_serving() ) {
 			$lines[] = '- ' . MMSAR_OpenAPI::url() . ' — OpenAPI description of the HTTP API';
+		}
+		if ( mmsar_feature_enabled( 'auth_md' ) ) {
+			$lines[] = '- ' . MMSAR_Auth_Md::url() . ' — how to authenticate. No credentials are needed.';
 		}
 		if ( mmsar_feature_enabled( 'api_catalog' ) ) {
 			$lines[] = '- ' . home_url( '/.well-known/api-catalog' ) . ' — endpoint catalog';
 		}
+
 		$sitemap = mmsar_get_sitemap_url();
 		if ( $sitemap ) {
 			$lines[] = '- ' . $sitemap . ' — XML sitemap';
 		}
+		$lines[] = '';
 
-		// Endpoints that can be called rather than just read are the ones an agent most wants to
-		// know about, and the registry is the only place they are described.
+		return $lines;
+	}
+
+	/**
+	 * The overview's "actions" section: endpoints an agent can call rather than only read.
+	 *
+	 * These are the ones an agent most wants to know about, and the registry is the only place they
+	 * are described. Returns nothing when the site exposes none, rather than an empty heading.
+	 *
+	 * @return string[] Lines.
+	 */
+	private static function overview_action_lines() {
 		$callable = array();
+
 		foreach ( MMSAR_Registry::get_endpoints() as $endpoint ) {
 			if ( empty( $endpoint['methods'] ) || array( 'GET' ) === $endpoint['methods'] ) {
 				continue;
@@ -721,18 +926,16 @@ class MMSAR_MCP {
 			$callable[] = '- **' . $endpoint['title'] . '** — `' . implode( ', ', $endpoint['methods'] ) . ' ' . $endpoint['href'] . '`'
 				. ( '' !== $endpoint['description'] ? ' — ' . $endpoint['description'] : '' );
 		}
-		if ( $callable ) {
-			$lines[] = '';
-			$lines[] = '## Endpoints you can call';
-			$lines[] = '';
-			$lines[] = 'These are outside this MCP server — call them over plain HTTP.';
-			$lines[] = '';
-			foreach ( $callable as $line ) {
-				$lines[] = $line;
-			}
+
+		if ( empty( $callable ) ) {
+			return array();
 		}
 
-		return self::tool_text( implode( "\n", $lines ) );
+		return array_merge(
+			array( '## Endpoints you can call', '', 'These are outside this MCP server — call them over plain HTTP.', '' ),
+			$callable,
+			array( '' )
+		);
 	}
 
 	// -------------------------------------------------------------------------
@@ -770,11 +973,15 @@ class MMSAR_MCP {
 			);
 		}
 
+		foreach ( self::ui_resources() as $ui ) {
+			$resources[] = $ui;
+		}
+
 		return $resources;
 	}
 
 	/**
-	 * resources/read.
+	 * Handle a resources/read request.
 	 *
 	 * Only the URIs this server advertises are readable. Fetching an arbitrary URI on request would
 	 * turn an unauthenticated public endpoint into a request proxy, which is how a public MCP
@@ -786,8 +993,22 @@ class MMSAR_MCP {
 	private static function read_resource( $params ) {
 		$uri = isset( $params['uri'] ) ? (string) $params['uri'] : '';
 
+		// ui:// templates are generated here rather than fetched — they have no HTTP address, and
+		// wp_remote_get() on a ui:// scheme would simply fail.
+		if ( self::UI_RESULTS === $uri && self::ui_enabled() ) {
+			return array(
+				'contents' => array(
+					array(
+						'uri'      => $uri,
+						'mimeType' => 'text/html+skybridge',
+						'text'     => self::ui_results_html(),
+					),
+				),
+			);
+		}
+
 		foreach ( self::resources() as $resource ) {
-			if ( $resource['uri'] !== $uri ) {
+			if ( $resource['uri'] !== $uri || 0 === strpos( $uri, 'ui://' ) ) {
 				continue;
 			}
 
@@ -957,6 +1178,7 @@ class MMSAR_MCP {
 	 */
 	public static function add_rewrite_rules() {
 		add_rewrite_rule( '^\.well-known/mcp\.json$', 'index.php?mmsar_mcp_manifest=1', 'top' );
+		add_rewrite_rule( '^\.well-known/mcp/server-card\.json$', 'index.php?mmsar_mcp_server_card=1', 'top' );
 	}
 
 	/**
@@ -967,6 +1189,7 @@ class MMSAR_MCP {
 	 */
 	public static function add_query_vars( $vars ) {
 		$vars[] = 'mmsar_mcp_manifest';
+		$vars[] = 'mmsar_mcp_server_card';
 		return $vars;
 	}
 
@@ -982,6 +1205,9 @@ class MMSAR_MCP {
 	 * @return void
 	 */
 	public static function serve_manifest() {
+		if ( get_query_var( 'mmsar_mcp_server_card' ) ) {
+			self::serve_server_card();
+		}
 		if ( ! get_query_var( 'mmsar_mcp_manifest' ) ) {
 			return;
 		}
@@ -1042,5 +1268,231 @@ class MMSAR_MCP {
 		status_header( 200 );
 		echo wp_json_encode( $manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
 		exit;
+	}
+
+	/**
+	 * /.well-known/mcp/server-card.json
+	 *
+	 * The same server described a second time, in a second shape, at a second address. Worth being
+	 * clear that this is a convention rather than a ratified spec — the MCP specification covers the
+	 * connection, not discovery, and this location comes from agent directories rather than from the
+	 * protocol. It is published because the cost is a few hundred bytes of already-derived data and
+	 * the benefit is being listed by directories that look here and nowhere else.
+	 *
+	 * The difference from mcp.json is the tool detail: a card carries the full tool list with
+	 * descriptions, so a directory can show what the server does without opening a transport.
+	 *
+	 * @return void
+	 */
+	private static function serve_server_card() {
+		$site_name = html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+		$tools = array();
+		foreach ( self::tools() as $tool ) {
+			$tools[] = array(
+				'name'        => $tool['name'],
+				'title'       => isset( $tool['title'] ) ? $tool['title'] : $tool['name'],
+				'description' => $tool['description'],
+				'inputSchema' => $tool['inputSchema'],
+			);
+		}
+
+		$card = array(
+			'name'            => 'mmsar-' . sanitize_title( $site_name ),
+			'title'           => $site_name,
+			'description'     => 'Read-only access to the published content of ' . $site_name . ': search it, list it, and read any page as Markdown.',
+			'version'         => MMSAR_VERSION,
+			'protocolVersion' => self::PROTOCOL_VERSION,
+			'serverUrl'       => self::endpoint_url(),
+			'transport'       => array(
+				'type' => 'streamable-http',
+				'url'  => self::endpoint_url(),
+			),
+			'authentication'  => array( 'type' => 'none' ),
+			'tools'           => $tools,
+			'resources'       => self::resources(),
+			'websiteUrl'      => home_url( '/' ),
+			'documentationUrl' => mmsar_feature_enabled( 'llms_txt' ) ? home_url( '/llms.txt' ) : home_url( '/' ),
+		);
+
+		$icon = get_site_icon_url( 512 );
+		if ( $icon ) {
+			$card['icons'] = array(
+				array(
+					'src'   => $icon,
+					'sizes' => '512x512',
+				),
+			);
+		}
+
+		/**
+		 * Filters the MCP server card before it is served.
+		 *
+		 * @param array $card The server card, as a PHP array.
+		 */
+		$filtered = apply_filters( 'mmsar_mcp_server_card', $card );
+		if ( is_array( $filtered ) ) {
+			$card = $filtered;
+		}
+
+		mmsar_send_cache_headers();
+		header( 'Content-Type: application/json; charset=UTF-8' );
+		MMSAR_Agent_Log::record( 'mcp server-card.json' );
+		header( 'Access-Control-Allow-Origin: *' );
+		status_header( 200 );
+		echo wp_json_encode( $card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		exit;
+	}
+
+	// -------------------------------------------------------------------------
+	// MCP Apps (ui:// resources)
+	// -------------------------------------------------------------------------
+
+	/**
+	 * The URI of the search-results UI template.
+	 */
+	const UI_RESULTS = 'ui://mmsar/search-results.html';
+
+	/**
+	 * Whether to advertise MCP Apps UI resources.
+	 *
+	 * Off unless asked for, and the reason is worth stating plainly: the MCP Apps extension is young,
+	 * the host side of the contract varies between implementations, and this template has never been
+	 * rendered by a real MCP Apps host — there was none available to test against. Every other
+	 * surface in this plugin was verified end to end before shipping; this one cannot honestly claim
+	 * that, so it does not turn itself on.
+	 *
+	 * A host that ignores `_meta` entirely still gets the normal text result, which is why declaring
+	 * the template is safe rather than merely cheap.
+	 *
+	 * @return bool
+	 */
+	public static function ui_enabled() {
+		/**
+		 * Filters whether the MCP server advertises MCP Apps UI resources.
+		 *
+		 * @param bool $enabled Whether UI resources are advertised. Follows the `mcp_ui` feature toggle.
+		 */
+		return (bool) apply_filters( 'mmsar_mcp_ui_enabled', mmsar_feature_enabled( 'mcp_ui' ) );
+	}
+
+	/**
+	 * The HTML for the search-results template.
+	 *
+	 * Self-contained by necessity — a UI resource is rendered in a sandbox with no network — and
+	 * defensive about how it receives its data, because the host APIs disagree. It tries the OpenAI
+	 * Apps SDK global, the MCP Apps bridge, and a postMessage handshake, then renders whichever
+	 * arrives. With none of them it shows a plain message rather than an empty frame, so a host that
+	 * implements none of these produces something legible instead of a blank panel.
+	 *
+	 * @return string HTML.
+	 */
+	private static function ui_results_html() {
+		$site_name = esc_html( html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+
+		return <<<HTML
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- Declared in the document because a ui:// resource is delivered as a string over the MCP
+     connection rather than as an HTTP response, so there is no header to carry a policy. The panel
+     needs nothing from the network: its markup, styles and script are all inline, and the only
+     external thing it references is the href of a result link the viewer may click. Everything
+     else is denied, so a result title that somehow carried markup still cannot fetch or execute. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; frame-ancestors *">
+<title>Results</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 0; padding: 12px;
+         background: transparent; color: #111; }
+  @media (prefers-color-scheme: dark) { body { color: #eee; } }
+  h1 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; opacity: .6; margin: 0 0 10px; font-weight: 600; }
+  ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  li { border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 8px; padding: 10px 12px; }
+  a { color: inherit; text-decoration: none; font-weight: 600; }
+  a:hover { text-decoration: underline; }
+  p { margin: 4px 0 0; opacity: .72; font-size: 13.5px; }
+  .meta { margin-top: 6px; font-size: 12px; opacity: .55; }
+  .empty { opacity: .6; font-size: 13.5px; }
+</style>
+<h1>{$site_name}</h1>
+<div id="out"><p class="empty">Waiting for results…</p></div>
+<script>
+(function () {
+  var out = document.getElementById('out');
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+  }); }
+
+  function render(items) {
+    if (!items || !items.length) { out.innerHTML = '<p class="empty">No results.</p>'; return; }
+    out.innerHTML = '<ol>' + items.map(function (r) {
+      var url = esc(r.url || r.link || '');
+      var name = esc(r.name || r.title || url);
+      var desc = esc(r.description || r.excerpt || '');
+      var meta = esc([r.type, r.date].filter(Boolean).join(' · '));
+      return '<li><a href="' + url + '" target="_blank" rel="noopener">' + name + '</a>'
+        + (desc ? '<p>' + desc + '</p>' : '')
+        + (meta ? '<div class="meta">' + meta + '</div>' : '')
+        + '</li>';
+    }).join('') + '</ol>';
+  }
+
+  // Hosts disagree about how tool output reaches a UI resource, so try each known shape and take
+  // whichever answers. None of these throws if the global is absent.
+  function fromAny(payload) {
+    if (!payload) return null;
+    if (Array.isArray(payload)) return payload;
+    return payload.results || payload.items || payload.structuredContent || null;
+  }
+
+  try {
+    if (window.openai && window.openai.toolOutput) {
+      var direct = fromAny(window.openai.toolOutput);
+      if (direct) { render(direct); return; }
+    }
+  } catch (e) {}
+
+  try {
+    if (window.mcp && typeof window.mcp.getToolOutput === 'function') {
+      Promise.resolve(window.mcp.getToolOutput()).then(function (o) {
+        var r = fromAny(o); if (r) render(r);
+      }).catch(function () {});
+    }
+  } catch (e) {}
+
+  window.addEventListener('message', function (event) {
+    var data = event && event.data;
+    if (!data) return;
+    var r = fromAny(data.toolOutput || data.structuredContent || data);
+    if (r) render(r);
+  });
+
+  try { window.parent && window.parent.postMessage({ type: 'mcp-ui-ready' }, '*'); } catch (e) {}
+})();
+</script>
+HTML;
+	}
+
+	/**
+	 * The UI resources this server exposes, when UI is switched on.
+	 *
+	 * @return array[] Resource descriptors.
+	 */
+	private static function ui_resources() {
+		if ( ! self::ui_enabled() ) {
+			return array();
+		}
+		return array(
+			array(
+				'uri'         => self::UI_RESULTS,
+				'name'        => 'search-results',
+				'title'       => 'Search results',
+				'description' => 'Renders results from search_content or list_content as a list of links.',
+				// The media type MCP Apps hosts look for on an inline UI template.
+				'mimeType'    => 'text/html+skybridge',
+			),
+		);
 	}
 }

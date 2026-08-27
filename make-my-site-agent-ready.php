@@ -3,7 +3,7 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, an OpenAPI spec, a read-only MCP server, agent-recoverable 404s, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.20.1
+ * Version:           1.21.1
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.20.1' );
+define( 'MMSAR_VERSION', '1.21.1' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -42,6 +42,10 @@ require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-skills.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-openapi.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-mcp.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-not-found.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-auth-md.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-ai-catalog.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-agent-view.php';
+require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-nlweb.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-robots-allow.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-structured-data.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-admin.php';
@@ -85,6 +89,17 @@ function mmsar_get_feature_keys() {
 		// can reach is already public, and it is rate-limited, but adding an endpoint like that to
 		// someone's site without being asked is not this plugin's call to make. Off by default.
 		'mcp_server'           => false,
+		// All four add a new URL and change no existing response.
+		'auth_md'              => true,
+		'ai_catalog'           => true,
+		'agent_view'           => true,
+		// Off by default: it is the only one of these that answers a question rather than serving a
+		// document, and it adds a public endpoint that runs a query per call.
+		'nlweb'                => false,
+		// Off, and the only feature here that ships without having been verified end to end: no MCP
+		// Apps host was available to render the template against. Everything else in this plugin was
+		// tested against the thing that consumes it before it shipped.
+		'mcp_ui'               => false,
 		// Also off by default, and for a different reason: it writes rows into the Activity Log
 		// plugin's table, which is the owner's data store rather than ours. Nothing should start
 		// filling someone's log uninvited.
@@ -146,6 +161,33 @@ function mmsar_feature_enabled( $key ) {
  */
 function mmsar_register_endpoint( $endpoint ) {
 	return MMSAR_Registry::register( $endpoint );
+}
+
+/**
+ * Drops every cached document this plugin generates.
+ *
+ * They are all derived from the same three things — the feature toggles, the endpoint registry, and
+ * the site's own content — so any of those changing invalidates the whole set, not one file. One
+ * function so a new cached document is added in a single place rather than to a list of call sites
+ * that then drift.
+ *
+ * @return void
+ */
+function mmsar_flush_generated_documents() {
+	delete_transient( 'llmmd_llms_txt' );
+	delete_transient( 'mmsar_llms_full_txt' );
+	// The scoped indexes are per post type and there is no wildcard delete, so they are cleared by
+	// walking the sections that exist. A section that has since been removed leaves an orphan
+	// transient, which expires on its own within a day and is never served in the meantime — the
+	// scoped route only answers for a post type still in the current section list.
+	if ( class_exists( 'MMSAR_LLMs_Txt' ) ) {
+		foreach ( MMSAR_LLMs_Txt::sections() as $section ) {
+			delete_transient( 'llmmd_llms_txt_' . $section['post_type'] );
+		}
+	}
+	if ( class_exists( 'MMSAR_OpenAPI' ) ) {
+		MMSAR_OpenAPI::flush();
+	}
 }
 
 /**
@@ -213,9 +255,7 @@ add_action( 'plugins_loaded', 'mmsar_check_version' );
 function mmsar_check_version() {
 	$stored = get_option( 'llmmd_version' );
 	if ( MMSAR_VERSION !== $stored ) {
-		delete_transient( 'llmmd_llms_txt' );
-		delete_transient( 'mmsar_llms_full_txt' );
-		MMSAR_OpenAPI::flush();
+		mmsar_flush_generated_documents();
 		update_option( 'llmmd_version', MMSAR_VERSION );
 		// Any version bump may have added new rewrite rules (e.g. new /.well-known/ endpoints).
 		// Updating a plugin's files in place does not re-fire register_activation_hook, so this
@@ -317,7 +357,13 @@ function mmsar_prevent_canonical_redirect( $redirect_url ) {
 	$plugin_paths = array(
 		'/llms.txt',
 		'/llms-full.txt',
+		'/auth.md',
+		'/ask',
+		'/schema-map.xml',
 		'/openapi.json',
+		'/.well-known/ai-catalog.json',
+		'/.well-known/ard.json',
+		'/.well-known/mcp/server-card.json',
 		'/.well-known/openapi.json',
 		'/.well-known/mcp.json',
 		'/.well-known/security.txt',
@@ -330,6 +376,15 @@ function mmsar_prevent_canonical_redirect( $redirect_url ) {
 			return false;
 		}
 	}
+
+	// The scoped section indexes live at /<section>/llms.txt, which is a different path on every
+	// site, so they cannot be listed above. Matched by suffix instead: WordPress would otherwise
+	// see a path with no trailing slash and redirect /media/llms.txt to /media/llms.txt/, which is
+	// a 301 in front of a document agents are told to fetch by exact URL.
+	if ( preg_match( '#/llms\.txt$#', rtrim( $path, '/' ) ) ) {
+		return false;
+	}
+
 	return $redirect_url;
 }
 
@@ -358,6 +413,18 @@ if ( mmsar_feature_enabled( 'mcp_server' ) ) {
 }
 if ( mmsar_feature_enabled( 'agent_404' ) ) {
 	MMSAR_Not_Found::init();
+}
+if ( mmsar_feature_enabled( 'auth_md' ) ) {
+	MMSAR_Auth_Md::init();
+}
+if ( mmsar_feature_enabled( 'ai_catalog' ) ) {
+	MMSAR_AI_Catalog::init();
+}
+if ( mmsar_feature_enabled( 'agent_view' ) ) {
+	MMSAR_Agent_View::init();
+}
+if ( mmsar_feature_enabled( 'nlweb' ) ) {
+	MMSAR_NLWeb::init();
 }
 MMSAR_Negotiation_Check::init();
 MMSAR_Agent_Log::init();
@@ -481,6 +548,11 @@ function mmsar_send_link_headers() {
 	}
 	if ( mmsar_feature_enabled( 'mcp_server' ) ) {
 		header( 'Link: <' . esc_url_raw( home_url( '/.well-known/mcp.json' ) ) . '>; rel="service-desc"; type="application/json"', false );
+	}
+	// rel="authenticate" is not registered with IANA, so auth.md goes out under service-doc: it is
+	// human-and-model-readable documentation of the service, which is exactly what that relation means.
+	if ( mmsar_feature_enabled( 'auth_md' ) ) {
+		header( 'Link: <' . esc_url_raw( MMSAR_Auth_Md::url() ) . '>; rel="service-doc"; type="text/markdown"', false );
 	}
 	// rel="describedby" and type="text/plain" both match how the api-catalog already lists llms.txt,
 	// so an agent reading the header and an agent reading the catalog are told the same thing.

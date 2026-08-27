@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.21.1 — 2026-08-27
+
+Three fixes from re-scanning with 1.21.0 live. Also worth recording what the scan got *wrong*: it reported `/.well-known/api-catalog` as absent, the About/Contact/Privacy pages as missing, and the site's own homepage as an unresolvable link — all three demonstrably fine, and all three passing in the previous run. Transient scan failures read exactly like regressions in a diff, and chasing them would have meant "fixing" working code.
+
+### Fixed
+
+- **The ARD catalog did not conform to its own specification.** It was written from the prose description rather than the schema, and got two things wrong: the entry array was named `resources` where the spec says `entries`, and `type` carried a category word (`mcpServer`, `api`) where the spec wants an IANA media type describing the artifact at `url`. A validator therefore saw a catalog that was present, parseable, and empty of anything it could check. Entries now also carry `capabilities`, `representativeQueries` and a `trustManifest`.
+- The `trustManifest` states `verificationMethod: same-origin`, which is the honest description of what is actually proven: the catalog is served over HTTPS from the domain it names, so a reader that fetched it has already verified the binding. A signature or a third-party attestation would be asserting a check nobody performed.
+- The document is served at `/.well-known/ard.json` as well as `/.well-known/ai-catalog.json`. The specification names the first; directories and scanners look for the second.
+
+### New
+
+- **A Content-Security-Policy inside the MCP Apps UI template.** A `ui://` resource arrives as a string over the MCP connection rather than as an HTTP response, so there is no header to attach a policy to and it has to be declared in the document. The panel's markup, styles and script are all inline and it needs nothing from the network, so everything else is denied — a result title that somehow carried markup still cannot fetch or execute.
+
+### Changed
+
+- A GET to the MCP endpoint carries the RateLimit headers alongside its 405. The limiter applies to that request too, and a client that only ever issues a GET would otherwise never learn the policy exists.
+
+## 1.21.0 — 2026-08-27
+
+A second pass driven by re-scanning the site with 1.20.1 installed. The scan's remaining findings sorted into three piles, and this release deliberately only works two of them: things that genuinely improve how an agent uses a site, and cheap conventions that cost nothing to honor. The third pile — OAuth metadata, RFC 9728 protected-resource documents, `agent_auth` registration endpoints, Web Bot Auth key directories — is scored and is not implemented, because this plugin ships to sites that have no authorization server, and publishing discovery documents pointing at endpoints that do not exist is worse than scoring zero.
+
+### New
+
+- **"When to use this" in llms.txt.** Everything else in an llms.txt is inventory: what exists, where it lives. This is the only part that helps an agent decide whether any of it is worth fetching for the question in front of it. Without it an agent either reads the whole index to discover it was the wrong site, or skips a site that would have answered. Owners write their own on the settings page; the generated fallback describes the shape of the site and what its endpoints are good for, and stops there — it cannot know the subject matter and does not pretend to.
+- **`/auth.md`.** The honest version of a document that is usually aspirational. Most sites running this plugin have no authorization server and no API keys, and the truthful answer to "how do I authenticate" is "you don't" — which is worth publishing rather than omitting, because an agent that finds no auth document has to assume it needs a credential it cannot obtain. It follows the section shape of the WorkOS draft, including the sections that do not apply: "there is no registration step" is information, and a missing heading is not. Sites that *do* have a credentialed endpoint get a walkthrough generated from the `auth` field already recorded in the endpoint registry, so the document reports what the owner said rather than inventing a scheme.
+- **`/.well-known/ai-catalog.json`** (Agentic Resource Discovery). The fourth discovery document this plugin publishes, and not redundant: api-catalog is a linkset of URLs, llms.txt is prose for a model, the Agent Skills index describes skills. ARD is the only one whose entries carry a typed resource kind and a stable domain-anchored identifier, which is what a directory building a listing actually reads.
+- **`/.well-known/mcp/server-card.json`.** The same server, described again with full tool detail so a directory can preview it without opening a transport. Worth stating plainly that this location is a convention rather than a ratified spec — MCP covers the connection, not discovery.
+- **`?mode=agent`** on any page. Also a convention rather than a standard, and also worth honoring, because the underlying complaint is real: a client handed a bare URL has no way to ask for the machine-readable version unless it already knows this site's particular conventions. A query parameter is the one lever a client always has.
+- **Per-section llms.txt.** `/press/llms.txt` indexes exactly what lives at `/press/...`, so the address an agent guesses from a content URL is the one that works. Post types with no rewrite slug are skipped rather than given an invented address.
+- **NLWeb `/ask`, with SSE streaming**, plus a Schema Map and a `Schemamap:` directive in robots.txt. Off by default: unlike every other surface here it answers by running a query rather than serving a file. `_meta.response_type` is `list`, never `summary` — there is no model behind this endpoint, and a caller needs to know it is receiving sources to read rather than an answer to quote. A generated summary would need an API key, a per-request cost and a hallucination budget, none of which belong in a plugin that otherwise only serves files.
+- **RateLimit headers on the MCP endpoint.** The limiter has been there since 1.20.0; it just never told anyone. Both spellings go out — the individual `RateLimit-*` fields most clients already read, and the single structured `RateLimit` field the IETF draft settled on — and `RateLimit-Reset` is computed from the transient's own expiry rather than a flat window, which would be wrong for every request after the first.
+- **Optional MCP Apps support.** An experimental `ui://` resource rendering search results as a card list. Off by default and labelled experimental for one honest reason: no MCP Apps host was available to render it against, so unlike everything else in this plugin it has not been verified against the thing that consumes it. A host that ignores the metadata still gets the normal text result, which is why declaring it is safe rather than merely cheap.
+
+### Changed
+
+- **A 404 on an API-shaped path returns JSON even when the client did not ask for it.** Readiness scanners probe `/api`, `/api/v1` and `/v1`; so do plenty of real clients. A request to `/api/v1` has announced what it is by the request line alone, and answering it with a themed HTML error page is precisely the failure "agents can't parse HTML error pages" describes. The prefix list is short and conservative — a person typing a URL does not arrive at `/api/v2/`.
+- `get_site_overview` takes an optional `sections` argument. Asking for `endpoints` alone is a fraction of the tokens of the whole overview.
+- The OpenAPI document references its `Error` schema across the full `4XX` and `5XX` ranges, and `info.description` now states the authentication position, where the rate limits apply, and how deprecation would be signalled if it ever happened.
+
+### Fixed
+
+- **`/auth.md` was swallowed by the `.md` catch-all**, which tried to resolve `auth` as a page slug and 404ed. The catch-all now excludes it by pattern. Relying on registration order would have been fragile: every one of these rules is registered `top`, so the winner is whichever class happened to hook `init` last.
+- **Per-section llms.txt rules were never registered.** They are derived from the registered post types, and a theme registering a custom type on `init` at the default priority does so *after* a plugin's `init` callbacks — plugins load first. The section list came back empty on every request. Now built at priority 20.
+- Scoped llms.txt URLs were being 301'd to a trailing-slash variant by WordPress's canonical redirect, putting a redirect in front of a document agents are told to fetch by exact URL.
+
 ## 1.20.1 — 2026-08-27
 
 Follow-up to 1.20.0, driven by re-scanning miriamschwab.me with it installed. The score moved 56 → 68, and the remaining findings split cleanly into two piles: conventions with no published spec behind them, which were left alone, and one real gap, which is fixed here.

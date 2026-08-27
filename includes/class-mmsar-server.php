@@ -39,11 +39,13 @@ class MMSAR_Server {
 	 * @return void
 	 */
 	public static function add_rewrite_rules() {
-		// Negative lookahead excludes /.well-known/ paths — this broad catch-all is for post/page
-		// .md URLs only, and would otherwise also match (and shadow) well-known endpoints like
-		// /.well-known/agent-skills/*/SKILL.md regardless of which rule was registered more recently.
+		// Negative lookahead excludes /.well-known/ paths and /auth.md — this broad catch-all is for
+		// post/page .md URLs only, and would otherwise also match (and shadow) the plugin's own
+		// markdown documents: /.well-known/agent-skills/*/SKILL.md and /auth.md. Relying on
+		// registration order instead would be fragile, because every one of these is registered
+		// 'top' and the winner is then whichever class happened to hook `init` last.
 		add_rewrite_rule(
-			'^(?!\.well-known/)(.+)\.md/?$',
+			'^(?!\.well-known/|auth\.md)(.+)\.md/?$',
 			'index.php?llmmd_path=$matches[1]&llmmd_serve=1',
 			'top'
 		);

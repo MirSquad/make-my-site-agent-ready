@@ -20,7 +20,11 @@ class MMSAR_LLMs_Txt {
 	 * @return void
 	 */
 	public static function init() {
-		add_action( 'init', array( __CLASS__, 'add_rewrite_rules' ) );
+		// Priority 20, not the default 10: the scoped section rules are derived from the registered
+		// post types, and a theme registering a custom type on `init` at the default priority does
+		// so *after* this plugin's own `init` callbacks — plugins load first. At priority 10 the
+		// section list came back empty on every request and no scoped rule was ever registered.
+		add_action( 'init', array( __CLASS__, 'add_rewrite_rules' ), 20 );
 		add_filter( 'query_vars', array( __CLASS__, 'add_query_vars' ) );
 		add_action( 'template_redirect', array( __CLASS__, 'serve_llms_txt' ) );
 		// A visible link in the page body is the only channel that reaches a fetch tool reliably.
@@ -45,6 +49,17 @@ class MMSAR_LLMs_Txt {
 			'index.php?llmmd_llms_txt=1',
 			'top'
 		);
+
+		// One scoped index per content section, so an agent chasing a single subject can fetch just
+		// that slice instead of the whole manual. Only sections that exist and have content get a
+		// rule — a scoped index that is always empty is another URL for an agent to waste a request on.
+		foreach ( self::sections() as $slug => $section ) {
+			add_rewrite_rule(
+				'^' . preg_quote( $slug, '#' ) . '/llms\.txt$',
+				'index.php?llmmd_llms_txt=1&llmmd_llms_section=' . rawurlencode( $section['post_type'] ),
+				'top'
+			);
+		}
 	}
 
 	/**
@@ -55,6 +70,7 @@ class MMSAR_LLMs_Txt {
 	 */
 	public static function add_query_vars( $vars ) {
 		$vars[] = 'llmmd_llms_txt';
+		$vars[] = 'llmmd_llms_section';
 		return $vars;
 	}
 
@@ -66,6 +82,32 @@ class MMSAR_LLMs_Txt {
 	public static function serve_llms_txt() {
 		if ( ! get_query_var( 'llmmd_llms_txt' ) ) {
 			return;
+		}
+
+		$section = get_query_var( 'llmmd_llms_section' );
+		if ( $section ) {
+			$section = sanitize_key( $section );
+			// A scoped index is only ever served for a section that still exists and still has
+			// content, so a post type emptied or switched off stops answering rather than serving
+			// an index of nothing.
+			$valid = wp_list_pluck( self::sections(), 'post_type' );
+			if ( ! in_array( $section, $valid, true ) ) {
+				return;
+			}
+			$cache_key = 'llmmd_llms_txt_' . $section;
+			$content   = get_transient( $cache_key );
+			if ( false === $content ) {
+				$content = self::generate_section( $section );
+				set_transient( $cache_key, $content, DAY_IN_SECONDS );
+			}
+
+			mmsar_send_cache_headers();
+			header( 'Content-Type: text/plain; charset=UTF-8' );
+			MMSAR_Agent_Log::record( 'llms.txt (' . $section . ')' );
+			status_header( 200 );
+			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw text/plain llms.txt, not HTML.
+			echo $content;
+			exit;
 		}
 
 		$content = get_transient( 'llmmd_llms_txt' );
@@ -145,6 +187,10 @@ class MMSAR_LLMs_Txt {
 			$lines[] = '';
 			$lines[] = '> ' . $description;
 		}
+		foreach ( self::when_to_use_lines() as $line ) {
+			$lines[] = $line;
+		}
+
 		$lines[] = '';
 		$lines[] = '## Site';
 		$lines[] = '- [Home](' . $home_url . ')';
@@ -209,9 +255,183 @@ class MMSAR_LLMs_Txt {
 	}
 
 	/**
+	 * The content sections that get their own scoped llms.txt.
+	 *
+	 * Keyed by the URL segment the section lives under, which is the post type's own rewrite slug —
+	 * so `/media/llms.txt` indexes exactly what lives at `/media/...`, and the address an agent
+	 * guesses from a content URL is the one that works. Types with no rewrite slug of their own are
+	 * skipped: there is no obvious address for them and inventing one would only produce a URL that
+	 * matches nothing a reader has seen.
+	 *
+	 * @return array<string, array> Slug => [ 'post_type' => string, 'label' => string ].
+	 */
+	public static function sections() {
+		$sections = array();
+
+		foreach ( mmsar_get_enabled_post_types() as $post_type ) {
+			$object = get_post_type_object( $post_type );
+			if ( ! $object ) {
+				continue;
+			}
+
+			$slug = '';
+			if ( 'post' === $post_type ) {
+				// Posts have no rewrite slug; their section is whatever page is set as the posts page.
+				$posts_page = (int) get_option( 'page_for_posts' );
+				if ( $posts_page ) {
+					$slug = get_post_field( 'post_name', $posts_page );
+				}
+			} elseif ( is_array( $object->rewrite ) && ! empty( $object->rewrite['slug'] ) ) {
+				$slug = $object->rewrite['slug'];
+			}
+
+			$slug = trim( (string) $slug, '/' );
+			if ( '' === $slug || false !== strpos( $slug, '/' ) ) {
+				continue;
+			}
+
+			$counts = wp_count_posts( $post_type );
+			if ( empty( $counts->publish ) ) {
+				continue;
+			}
+
+			$sections[ $slug ] = array(
+				'post_type' => $post_type,
+				'label'     => self::decode( $object->labels->name ),
+			);
+		}
+
+		/**
+		 * Filters the sections that get their own scoped llms.txt.
+		 *
+		 * @param array $sections Slug => [ 'post_type', 'label' ].
+		 */
+		$filtered = apply_filters( 'mmsar_llms_txt_sections', $sections );
+		return is_array( $filtered ) ? $filtered : $sections;
+	}
+
+	/**
+	 * A scoped llms.txt for one content section.
+	 *
+	 * @param string $post_type The post type to index.
+	 * @return string The document.
+	 */
+	private static function generate_section( $post_type ) {
+		$object    = get_post_type_object( $post_type );
+		$label     = $object ? self::decode( $object->labels->name ) : $post_type;
+		$site_name = self::decode( get_bloginfo( 'name' ) );
+
+		$posts = get_posts(
+			array(
+				'post_type'      => $post_type,
+				'post_status'    => 'publish',
+				'posts_per_page' => -1,
+				'orderby'        => 'date',
+				'order'          => 'DESC',
+				'has_password'   => false,
+			)
+		);
+
+		$lines   = array();
+		$lines[] = '# ' . $site_name . ' — ' . $label;
+		$lines[] = '';
+		$lines[] = '> A scoped index covering only ' . strtolower( $label ) . ' on this site. '
+			. 'For everything else, see the full index at ' . home_url( '/llms.txt' ) . '.';
+		$lines[] = '';
+		$lines[] = '## ' . $label;
+
+		foreach ( $posts as $post ) {
+			$lines[] = self::format_entry( $post );
+		}
+
+		$lines[] = '';
+		return implode( "\n", $lines ) . "\n";
+	}
+
+	/**
+	 * The "When to use this" section.
+	 *
+	 * The one piece of an llms.txt that is about judgement rather than inventory. Everything else in
+	 * the file tells an agent what is here; this tells it whether any of that is worth fetching for
+	 * the question in front of it. Without it an agent either reads the whole index to find out it
+	 * was the wrong site, or skips a site that would have answered it.
+	 *
+	 * Site owners write their own on the settings page. The generated fallback is deliberately
+	 * modest — it can honestly describe the shape of the site and what its endpoints are good for,
+	 * but it cannot know the subject matter, so it does not pretend to.
+	 *
+	 * @return string[] Lines to append, or an empty array when there is nothing to say.
+	 */
+	private static function when_to_use_lines() {
+		$custom = trim( (string) get_option( 'mmsar_when_to_use', '' ) );
+
+		if ( '' !== $custom ) {
+			$body = $custom;
+		} else {
+			$site_name = self::decode( get_bloginfo( 'name' ) );
+			$counts    = array();
+			foreach ( mmsar_get_enabled_post_types() as $post_type ) {
+				$object = get_post_type_object( $post_type );
+				$count  = wp_count_posts( $post_type );
+				$n      = isset( $count->publish ) ? (int) $count->publish : 0;
+				if ( $n > 0 && $object ) {
+					$counts[] = $n . ' ' . strtolower( 1 === $n ? $object->labels->singular_name : $object->labels->name );
+				}
+			}
+
+			$body = 'Use this site when a question is specifically about ' . $site_name
+				. ', about what its author has written or published, or about work they have done.'
+				. ( $counts ? ' It holds ' . self::human_join( $counts ) . '.' : '' )
+				. "\n\n"
+				. 'It is not a general reference — for anything not tied to this author or their work, look elsewhere.';
+		}
+
+		$how   = array();
+		if ( mmsar_feature_enabled( 'mcp_server' ) ) {
+			$how[] = 'Connect to the MCP server at `' . MMSAR_MCP::endpoint_url() . '` and call `search_content`. That is the cheapest route for a specific question.';
+		}
+		$how[] = 'Otherwise, read the index below, then fetch any page as Markdown by adding `.md` to its URL.';
+		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {
+			$how[] = 'To take everything in one request, fetch [llms-full.txt](' . home_url( '/llms-full.txt' ) . ').';
+		}
+
+		$lines = array( '', '## When to use this', '', $body, '', '### How to call it', '' );
+		foreach ( $how as $step ) {
+			$lines[] = '- ' . $step;
+		}
+
+		/**
+		 * Filters the "When to use this" section of llms.txt.
+		 *
+		 * @param string[] $lines Lines of the section, including its heading.
+		 */
+		$filtered = apply_filters( 'mmsar_when_to_use_lines', $lines );
+		return is_array( $filtered ) ? $filtered : $lines;
+	}
+
+	/**
+	 * Joins a list into "a", "a and b", or "a, b, and c".
+	 *
+	 * @param string[] $items Items to join.
+	 * @return string Joined string.
+	 */
+	private static function human_join( $items ) {
+		$items = array_values( $items );
+		$count = count( $items );
+		if ( $count <= 1 ) {
+			return implode( '', $items );
+		}
+		if ( 2 === $count ) {
+			return $items[0] . ' and ' . $items[1];
+		}
+		$last = array_pop( $items );
+		return implode( ', ', $items ) . ', and ' . $last;
+	}
+
+	/**
 	 * The section listing this site's machine-readable endpoints.
 	 *
-	 * llms.txt is the file an agent is most likely to fetch first, and until now it said nothing
+	 * This is the file an agent is most likely to fetch first, and until now it said nothing
 	 * about the rest of what this site publishes — an agent could read the whole index and still
 	 * not know there was an API to call or a server to connect to. Each line is gated on its own
 	 * feature, so nothing here points at a switched-off endpoint.
@@ -235,6 +455,11 @@ class MMSAR_LLMs_Txt {
 		}
 		if ( mmsar_feature_enabled( 'api_catalog' ) ) {
 			$entries[] = '- [api-catalog](' . home_url( '/.well-known/api-catalog' ) . '): every machine-readable endpoint on this site.';
+		}
+
+		foreach ( self::sections() as $slug => $section ) {
+			$entries[] = '- [' . $slug . '/llms.txt](' . home_url( '/' . $slug . '/llms.txt' ) . '): just the '
+				. strtolower( $section['label'] ) . ', if that is all you need.';
 		}
 
 		if ( empty( $entries ) ) {

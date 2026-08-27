@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.20.1
+Stable tag: 1.21.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,6 +112,27 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.21.1 - 2026-08-27 =
+* Fix: The Agentic Resource Discovery catalog did not match the ARD specification. It used `resources` where the spec says `entries`, and put a category word in `type` where the spec wants an IANA media type — so validators reported the catalog as present but invalid, with no entries to check. Entries now also carry a trustManifest, capabilities and representative queries. The catalog is served at /.well-known/ard.json as well, which is the address the specification itself names.
+* New: The MCP Apps UI template declares a Content-Security-Policy in the document. A ui:// resource is delivered as a string over the MCP connection rather than as an HTTP response, so there is no header to carry a policy — and the panel needs nothing from the network, so everything is denied.
+* Change: A GET to the MCP endpoint now carries the RateLimit headers alongside its 405. A client or scanner that only ever issues a GET would otherwise never see the policy, which applies to it just the same.
+
+= 1.21.0 - 2026-08-27 =
+* New: llms.txt now opens with a "When to use this" section — what this site is good for, what it is not, and which endpoint to reach for first. Write your own on the settings page, or let the plugin generate one from your content. This is the part of an llms.txt that is about judgement rather than inventory, and it was the piece that was missing.
+* New: /auth.md, a plain-language walkthrough of how an agent gets access. For most sites the honest answer is "no credentials needed", and saying so out loud stops an agent assuming it needs a key it cannot get. Endpoints you listed with an authentication requirement get their own section, written from what you entered.
+* New: /.well-known/ai-catalog.json — an Agentic Resource Discovery catalog listing your MCP server, API, skills and content index as typed entries with stable identifiers.
+* New: /.well-known/mcp/server-card.json — the same MCP server described with full tool detail, so a directory can preview it without opening a connection.
+* New: ?mode=agent on any page returns that page as Markdown; on the homepage it returns a summary of every machine-readable surface your site has.
+* New: Per-section llms.txt files. A site with a Press or Plugins section now also serves /press/llms.txt and /plugins/llms.txt, so an agent chasing one subject can fetch that slice instead of the whole index.
+* New: An optional NLWeb /ask endpoint answering questions about your site, with SSE streaming, plus a Schema Map at /schema-map.xml and a Schemamap directive in robots.txt. Retrieval only — it returns ranked pages from your site, not a generated answer, and says so in every response. Off by default.
+* New: The MCP server returns RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset on every response, and Retry-After on a 429, so an agent can pace itself instead of discovering the limit by hitting it.
+* New: Optional MCP Apps support — an experimental ui:// resource letting a client render search results as a card list in the conversation. Off by default and marked experimental, because no MCP Apps host was available to verify it against.
+* Change: A 404 on a plainly API-shaped path (/api, /api/v1, /v1, /graphql, /wp-json/...) now returns a JSON error even when the client did not ask for JSON. A request to /api/v1 has announced what it is by the request line alone, and answering it with a themed HTML error page is the failure "agents can't parse HTML error pages" actually describes.
+* Change: get_site_overview takes an optional `sections` argument, so an agent that only needs the endpoint list does not pay for the whole overview.
+* Change: The OpenAPI document references its Error schema across the full 4XX and 5XX ranges, and its description now states the authentication position, the rate limits and the deprecation policy.
+* Fix: /auth.md was being swallowed by the .md catch-all rewrite, which resolved it as a page slug and returned a 404. The catch-all now excludes it explicitly rather than relying on rule registration order.
+* Fix: Per-section llms.txt rules were computed before themes registered their custom post types, so no scoped rule was ever registered. They are now built at a later priority.
 
 = 1.20.1 - 2026-08-27 =
 * New: A 404 now answers with a JSON error — the same code/message/data.status shape the REST API uses — when the request asks for JSON. A client calling what it thinks is an API and getting a themed HTML page back cannot tell a wrong URL from a broken server without parsing markup. Browsers are unaffected: JSON has to be named in the Accept header and outrank HTML, which no browser does.

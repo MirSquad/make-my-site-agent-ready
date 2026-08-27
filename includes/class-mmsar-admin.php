@@ -135,6 +135,26 @@ class MMSAR_Admin {
 				__( 'MCP server (read-only)', 'make-my-site-agent-ready' ),
 				__( 'Opens a Model Context Protocol endpoint that AI clients — Claude, ChatGPT, agent frameworks — can connect to directly, with four tools: search the site, list content, read a page as Markdown, and get an overview. Strictly read-only and limited to the published content in the post types above, so it exposes nothing that llms-full.txt does not already publish, and it is rate-limited to 60 calls a minute per IP. Also publishes a discovery manifest at /.well-known/mcp.json. Off by default: unlike everything else here it answers requests by running queries rather than serving a file, and adding a public endpoint like that is your decision to make.', 'make-my-site-agent-ready' ),
 			),
+			'auth_md'              => array(
+				__( 'auth.md', 'make-my-site-agent-ready' ),
+				__( 'Publishes /auth.md, a plain-language walkthrough of how an agent gets access to your site. For most sites the honest answer is "you don\'t need credentials", and that is worth saying out loud — an agent that cannot find an auth document has to assume it needs a key it has no way to get, and either gives up or starts probing for login endpoints. Endpoints you listed under Endpoints below with an authentication requirement get their own section, generated from what you wrote there.', 'make-my-site-agent-ready' ),
+			),
+			'ai_catalog'           => array(
+				__( 'Agentic Resource Discovery catalog', 'make-my-site-agent-ready' ),
+				__( 'Publishes /.well-known/ai-catalog.json listing your agentic resources — MCP server, API, skills, content index — as typed entries with stable identifiers. Overlaps with api-catalog above by design: that one is a list of links for a client following relations, this one is a typed inventory for a directory building a listing.', 'make-my-site-agent-ready' ),
+			),
+			'agent_view'           => array(
+				__( 'Agent view (?mode=agent)', 'make-my-site-agent-ready' ),
+				__( 'Adds ?mode=agent to every page, returning that page as Markdown, and the homepage as a summary of every machine-readable surface your site has. A convention rather than a standard, but it fills a real gap: a client handed a bare URL has no way to ask for the machine-readable version unless it already knows your site\'s conventions, and a query parameter is the one lever it always has.', 'make-my-site-agent-ready' ),
+			),
+			'nlweb'                => array(
+				__( 'NLWeb /ask endpoint', 'make-my-site-agent-ready' ),
+				__( 'Answers questions about your site at /ask, in Microsoft\'s NLWeb shape, with optional SSE streaming — plus a Schema Map at /schema-map.xml and a Schemamap directive in robots.txt. Retrieval only: it returns ranked pages from your site, not a generated answer, and says so in every response. Off by default, because unlike the documents above it runs a query on each call.', 'make-my-site-agent-ready' ),
+			),
+			'mcp_ui'               => array(
+				__( 'MCP Apps UI (experimental)', 'make-my-site-agent-ready' ),
+				__( 'Lets an MCP client render search and listing results as a card list inside the conversation, instead of as plain text, by exposing a ui:// resource and pointing the two list tools at it. Requires the MCP server above. Marked experimental for one honest reason: no MCP Apps host was available to render this template against, so unlike everything else here it has not been verified against the thing that consumes it. A client that ignores the metadata still gets the normal text result, so switching it on cannot break an existing one. Off by default.', 'make-my-site-agent-ready' ),
+			),
 			'agent_404'            => array(
 				__( 'Agent-recoverable 404s', 'make-my-site-agent-ready' ),
 				__( 'A normal 404 tells an agent its URL was wrong and nothing else. This adds Link headers and <link> tags pointing at your sitemap, llms.txt and endpoint catalog, so it can find its way to the right page instead of giving up — and returns a short Markdown list of those destinations, in place of the themed error page, to clients that explicitly asked for Markdown. Your 404 page looks exactly the same to visitors.', 'make-my-site-agent-ready' ),
@@ -173,9 +193,7 @@ class MMSAR_Admin {
 		// Enabling or disabling a feature adds or removes rewrite rules, which only take effect
 		// after a flush. Flagged through the shared helper so this path and the option hooks that
 		// catch non-Settings-API writes can never drift to different flags or lifetimes.
-		delete_transient( 'llmmd_llms_txt' );
-		delete_transient( 'mmsar_llms_full_txt' );
-		MMSAR_OpenAPI::flush();
+		mmsar_flush_generated_documents();
 		mmsar_flag_flush_needed();
 		return $out;
 	}
@@ -207,6 +225,9 @@ class MMSAR_Admin {
 			// The manifest rather than the endpoint itself: the endpoint only answers POST, so a
 			// "View" link to it would open a browser tab on an error.
 			'mcp_server'    => '/.well-known/mcp.json',
+			'auth_md'       => '/auth.md',
+			'ai_catalog'    => '/.well-known/ai-catalog.json',
+			'nlweb'         => '/schema-map.xml',
 		);
 	}
 

@@ -125,7 +125,13 @@ class MMSAR_Not_Found {
 
 		self::send_link_headers();
 
-		if ( self::prefers( 'application/json' ) ) {
+		// JSON goes out when the client asked for it, and also when the URL it asked for is an API
+		// address. The second case is the one that matters in practice: a client requesting
+		// /api/v1 has told you what it is by the request line alone, and answering a plainly
+		// API-shaped request with a themed HTML error page is the exact failure "agents can't parse
+		// HTML error pages" describes. A wrong guess costs a caller nothing — it asked for an API
+		// path and got a JSON error saying there is no API there, which is the true answer.
+		if ( self::prefers( 'application/json' ) || self::looks_like_api_path() ) {
 			self::serve_json();
 		}
 
@@ -147,6 +153,51 @@ class MMSAR_Not_Found {
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw markdown as text/markdown, not HTML.
 		echo self::body();
 		exit;
+	}
+
+	/**
+	 * Whether the requested path is one only an API client would ask for.
+	 *
+	 * Deliberately a short, conservative list of the conventional API roots. It is not trying to
+	 * guess intent from anything subtle — a human typing a URL does not arrive at `/api/v2/`, and a
+	 * path under `/wp-json/` is by definition a REST call, so these are the cases where JSON is
+	 * unambiguously the right error format regardless of what the client said it accepts.
+	 *
+	 * @return bool True when the path is an API address.
+	 */
+	private static function looks_like_api_path() {
+		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+		if ( '' === $request_uri ) {
+			return false;
+		}
+		$path = strtolower( trim( (string) wp_parse_url( $request_uri, PHP_URL_PATH ), '/' ) );
+		if ( '' === $path ) {
+			return false;
+		}
+
+		$prefixes = array( 'api', 'wp-json', 'graphql', 'rest', 'v1', 'v2', 'v3' );
+
+		/**
+		 * Filters the path prefixes treated as API addresses for error formatting.
+		 *
+		 * A path equal to one of these, or beginning with one followed by a slash, gets a JSON error
+		 * on a 404 even when the client did not ask for JSON.
+		 *
+		 * @param string[] $prefixes Lowercase path prefixes, without slashes.
+		 */
+		$prefixes = (array) apply_filters( 'mmsar_api_path_prefixes', $prefixes );
+
+		foreach ( $prefixes as $prefix ) {
+			$prefix = strtolower( trim( (string) $prefix, '/' ) );
+			if ( '' === $prefix ) {
+				continue;
+			}
+			if ( $path === $prefix || 0 === strpos( $path, $prefix . '/' ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
