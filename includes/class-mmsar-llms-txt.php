@@ -386,7 +386,7 @@ class MMSAR_LLMs_Txt {
 				. 'It is not a general reference — for anything not tied to this author or their work, look elsewhere.';
 		}
 
-		$how   = array();
+		$how = array();
 		if ( mmsar_feature_enabled( 'mcp_server' ) ) {
 			$how[] = 'Connect to the MCP server at `' . MMSAR_MCP::endpoint_url() . '` and call `search_content`. That is the cheapest route for a specific question.';
 		}

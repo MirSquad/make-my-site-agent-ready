@@ -192,7 +192,7 @@ class MMSAR_AI_Catalog {
 	 * putting a resource kind there. Exactly one of `url` or `data` is permitted; everything here
 	 * has a URL.
 	 *
-	 * @param string   $namespace  URN namespace segment, e.g. 'server', 'api', 'skill'.
+	 * @param string   $urn_namespace URN namespace segment, e.g. 'server', 'api', 'skill'.
 	 * @param string   $name       URN name segment.
 	 * @param string   $label      Human-readable name.
 	 * @param string   $media_type IANA media type of the artifact at $url.
@@ -202,14 +202,14 @@ class MMSAR_AI_Catalog {
 	 * @param string[] $queries    Representative natural-language queries.
 	 * @return array The entry.
 	 */
-	private static function entry( $namespace, $name, $label, $media_type, $url, $desc, $caps, $queries ) {
+	private static function entry( $urn_namespace, $name, $label, $media_type, $url, $desc, $caps, $queries ) {
 		$host = wp_parse_url( home_url( '/' ), PHP_URL_HOST );
 
 		$entry = array(
-			'identifier'  => 'urn:air:' . $host . ':' . $namespace . ':' . sanitize_key( $name ),
-			'displayName' => $label,
-			'type'        => $media_type,
-			'url'         => $url,
+			'identifier'    => 'urn:air:' . $host . ':' . $urn_namespace . ':' . sanitize_key( $name ),
+			'displayName'   => $label,
+			'type'          => $media_type,
+			'url'           => $url,
 			// The domain binding every entry carries. `same-origin` is the honest description of what
 			// is actually proven here: this catalog is served over HTTPS from the domain it names, so
 			// a reader who fetched it has already verified the binding. Claiming a signature or a

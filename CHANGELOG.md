@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.21.3 — 2026-08-28
+
+Housekeeping only — no functional change, and the plugin behaves identically.
+
+The audit had been sitting at 0 errors but 54 warnings. Nothing in it touched security or correctness (the gate fails on errors, and there were none), but the standing rule is a clean 0/0, so the gap is now closed.
+
+### Changed
+- Array `=>` and assignment `=` alignment across six files in `includes/` — 51 whitespace-only edits.
+- One stand-alone `$rank++` changed to `++$rank` in the NLWeb result loop. Identical semantics; the return value was never used.
+- Two private static method parameters renamed off PHP reserved words: `entry( $namespace, … )` → `$urn_namespace` in the AI catalog, and `requested_limit( $arguments, $default )` → `$fallback` in the MCP handler. Both methods are private with positional callers only, so nothing outside the class is affected.
+
 ## 1.21.2 — 2026-08-27
 
 Small release with an awkward reason: 1.21.1 was tagged, then amended before it was pushed, so two different builds briefly carried that version number. One was installed on a live site and the other reached GitHub. Nothing was broken by it, but a version number that means two things is worse than a version bump, so the corrected build ships as 1.21.2.

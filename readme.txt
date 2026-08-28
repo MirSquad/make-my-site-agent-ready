@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.21.2
+Stable tag: 1.21.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,6 +112,9 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.21.3 - 2026-08-28 =
+* Housekeeping: coding-standards cleanup across the includes — array and assignment alignment, one pre-increment, and two parameter names that shadowed PHP reserved words. No functional change; the plugin behaves identically.
 
 = 1.21.2 - 2026-08-27 =
 * New: The MCP get_site_overview tool lists /auth.md among the site's endpoints. It was the one document the overview never mentioned, which is backwards: an agent asking what a site offers should be told how to get in.

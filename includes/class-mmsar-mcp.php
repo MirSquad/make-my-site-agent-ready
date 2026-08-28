@@ -248,7 +248,7 @@ class MMSAR_MCP {
 		$params = isset( $message['params'] ) && is_array( $message['params'] ) ? $message['params'] : array();
 		// A message with no id is a notification: it is acted on, but never answered. Note that
 		// id 0 and id "" are both legitimate ids, so this tests for the key, not for truthiness.
-		$id     = array_key_exists( 'id', $message ) ? $message['id'] : null;
+		$id              = array_key_exists( 'id', $message ) ? $message['id'] : null;
 		$is_notification = ! array_key_exists( 'id', $message );
 
 		switch ( $method ) {
@@ -485,12 +485,12 @@ class MMSAR_MCP {
 
 		$tools = array(
 			array(
-				'name'         => 'search_content',
-				'title'        => 'Search content',
-				'description'  => 'Full-text search across the published posts and pages of ' . $site_name . '. Returns titles, URLs and excerpts, newest-relevant first. Use this when you know roughly what you are looking for; pass a returned url to get_content to read the whole thing.',
-				'inputSchema'  => array(
-					'type'       => 'object',
-					'properties' => array(
+				'name'        => 'search_content',
+				'title'       => 'Search content',
+				'description' => 'Full-text search across the published posts and pages of ' . $site_name . '. Returns titles, URLs and excerpts, newest-relevant first. Use this when you know roughly what you are looking for; pass a returned url to get_content to read the whole thing.',
+				'inputSchema' => array(
+					'type'                 => 'object',
+					'properties'           => array(
 						'query'     => array(
 							'type'        => 'string',
 							'description' => 'Words to search for. Keep it to a few meaningful terms — this is a keyword search, not a semantic one, so a full sentence usually matches less than its two most specific words.',
@@ -510,7 +510,7 @@ class MMSAR_MCP {
 					'required'             => array( 'query' ),
 					'additionalProperties' => false,
 				),
-				'annotations'  => array(
+				'annotations' => array(
 					'readOnlyHint'    => true,
 					'destructiveHint' => false,
 					'openWorldHint'   => false,
@@ -521,8 +521,8 @@ class MMSAR_MCP {
 				'title'       => 'Read a page',
 				'description' => 'Returns the full text of one published post or page as Markdown, along with its title, URL and publication date. Give it a URL from search_content or list_content, or any URL on this site.',
 				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
+					'type'                 => 'object',
+					'properties'           => array(
 						'url' => array(
 							'type'        => 'string',
 							'description' => 'The page\'s URL on this site. A path such as `/about/` works too.',
@@ -542,8 +542,8 @@ class MMSAR_MCP {
 				'title'       => 'List recent content',
 				'description' => 'Lists published content newest first, without searching. Use this to see what is on the site, to find the most recent writing, or to page through everything.',
 				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
+					'type'                 => 'object',
+					'properties'           => array(
 						'post_type' => array(
 							'type'        => 'string',
 							'description' => 'Which content type to list. Omit for all of them.',
@@ -574,8 +574,8 @@ class MMSAR_MCP {
 				'title'       => 'Site overview',
 				'description' => 'What this site is, who runs it, how much content it has, and which machine-readable endpoints it publishes. Call this once at the start if you have no context on the site.',
 				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
+					'type'                 => 'object',
+					'properties'           => array(
 						'sections' => array(
 							'type'        => 'array',
 							'description' => 'Which parts of the overview to return. Omit for all of them. Ask for a subset when you already have context and only need one thing — `endpoints` alone is a fraction of the tokens of the whole overview.',
@@ -606,7 +606,7 @@ class MMSAR_MCP {
 					continue;
 				}
 				$tools[ $index ]['_meta'] = array(
-					'ui' => array(
+					'ui'                    => array(
 						'resourceUri' => self::UI_RESULTS,
 						'preferred'   => true,
 					),
@@ -862,12 +862,12 @@ class MMSAR_MCP {
 	 * @return string[] Lines.
 	 */
 	private static function overview_content_lines() {
-		$lines   = array( '## Content', '' );
+		$lines = array( '## Content', '' );
 
 		foreach ( mmsar_get_enabled_post_types() as $post_type ) {
-			$object = get_post_type_object( $post_type );
-			$counts = wp_count_posts( $post_type );
-			$label  = $object ? $object->labels->name : $post_type;
+			$object  = get_post_type_object( $post_type );
+			$counts  = wp_count_posts( $post_type );
+			$label   = $object ? $object->labels->name : $post_type;
 			$lines[] = '- ' . $label . ': ' . ( isset( $counts->publish ) ? (int) $counts->publish : 0 ) . ' published';
 		}
 		$lines[] = '';
@@ -1095,11 +1095,11 @@ class MMSAR_MCP {
 	 * The result count a call asked for, clamped.
 	 *
 	 * @param array $arguments Tool arguments.
-	 * @param int   $default   Default when unspecified.
+	 * @param int   $fallback  Default when unspecified.
 	 * @return int Limit.
 	 */
-	private static function requested_limit( $arguments, $default ) {
-		$limit = isset( $arguments['limit'] ) ? (int) $arguments['limit'] : $default;
+	private static function requested_limit( $arguments, $fallback ) {
+		$limit = isset( $arguments['limit'] ) ? (int) $arguments['limit'] : $fallback;
 		return max( 1, min( self::MAX_LIMIT, $limit ) );
 	}
 
@@ -1298,20 +1298,20 @@ class MMSAR_MCP {
 		}
 
 		$card = array(
-			'name'            => 'mmsar-' . sanitize_title( $site_name ),
-			'title'           => $site_name,
-			'description'     => 'Read-only access to the published content of ' . $site_name . ': search it, list it, and read any page as Markdown.',
-			'version'         => MMSAR_VERSION,
-			'protocolVersion' => self::PROTOCOL_VERSION,
-			'serverUrl'       => self::endpoint_url(),
-			'transport'       => array(
+			'name'             => 'mmsar-' . sanitize_title( $site_name ),
+			'title'            => $site_name,
+			'description'      => 'Read-only access to the published content of ' . $site_name . ': search it, list it, and read any page as Markdown.',
+			'version'          => MMSAR_VERSION,
+			'protocolVersion'  => self::PROTOCOL_VERSION,
+			'serverUrl'        => self::endpoint_url(),
+			'transport'        => array(
 				'type' => 'streamable-http',
 				'url'  => self::endpoint_url(),
 			),
-			'authentication'  => array( 'type' => 'none' ),
-			'tools'           => $tools,
-			'resources'       => self::resources(),
-			'websiteUrl'      => home_url( '/' ),
+			'authentication'   => array( 'type' => 'none' ),
+			'tools'            => $tools,
+			'resources'        => self::resources(),
+			'websiteUrl'       => home_url( '/' ),
 			'documentationUrl' => mmsar_feature_enabled( 'llms_txt' ) ? home_url( '/llms.txt' ) : home_url( '/' ),
 		);
 

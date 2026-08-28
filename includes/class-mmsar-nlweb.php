@@ -362,7 +362,7 @@ class MMSAR_NLWeb {
 		$total   = count( $posts );
 
 		foreach ( $posts as $post ) {
-			$rank++;
+			++$rank;
 			$url   = get_permalink( $post );
 			$title = html_entity_decode( get_the_title( $post ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 
@@ -372,14 +372,14 @@ class MMSAR_NLWeb {
 			$excerpt = trim( html_entity_decode( wp_strip_all_tags( $excerpt ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
 
 			$results[] = array(
-				'url'         => $url,
-				'name'        => $title,
-				'site'        => $site,
+				'url'           => $url,
+				'name'          => $title,
+				'site'          => $site,
 				// Rank expressed as a descending score, because that is the shape NLWeb callers sort
 				// on. It reflects WordPress's relevance ordering, not a semantic similarity — there
 				// is no embedding here and a score that implied one would be misleading.
-				'score'       => $total > 0 ? round( 1 - ( ( $rank - 1 ) / max( $total, 1 ) ), 4 ) : 0,
-				'description' => $excerpt,
+				'score'         => $total > 0 ? round( 1 - ( ( $rank - 1 ) / max( $total, 1 ) ), 4 ) : 0,
+				'description'   => $excerpt,
 				'schema_object' => array(
 					'@context'      => 'https://schema.org',
 					'@type'         => 'Article',
@@ -426,9 +426,9 @@ class MMSAR_NLWeb {
 	private static function serve_schema_map() {
 		$feeds = array(
 			array(
-				'loc'      => home_url( '/feed/' ),
-				'type'     => 'application/rss+xml',
-				'lastmod'  => self::last_modified(),
+				'loc'     => home_url( '/feed/' ),
+				'type'    => 'application/rss+xml',
+				'lastmod' => self::last_modified(),
 			),
 		);
 		if ( mmsar_feature_enabled( 'llms_full_txt' ) ) {

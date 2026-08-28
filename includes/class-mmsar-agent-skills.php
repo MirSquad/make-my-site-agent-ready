@@ -106,13 +106,13 @@ class MMSAR_Agent_Skills {
 		if ( mmsar_feature_enabled( 'mcp_server' ) ) {
 			// Listed ahead of OpenAPI because a client that can use it should: connecting once beats
 			// building requests, and the tools return content already parsed.
-			$mcp       = MMSAR_MCP::endpoint_url();
+			$mcp        = MMSAR_MCP::endpoint_url();
 			$sections[] = array(
 				'line' => "- `{$mcp}` — a read-only MCP server over Streamable HTTP, no authentication. If your client speaks MCP, connect here instead of fetching files: it can search this site, list its content, and return any page as Markdown.",
 			);
 		}
 		if ( mmsar_feature_enabled( 'openapi' ) && MMSAR_OpenAPI::is_serving() ) {
-			$openapi   = MMSAR_OpenAPI::url();
+			$openapi    = MMSAR_OpenAPI::url();
 			$sections[] = array(
 				'line' => "- `{$openapi}` — an OpenAPI description of this site's HTTP API, including how to search and filter content and what shape its errors take. Fetch this when you need to build a request rather than read a page.",
 			);

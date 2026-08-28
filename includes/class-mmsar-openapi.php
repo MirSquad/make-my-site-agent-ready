@@ -52,7 +52,7 @@ class MMSAR_OpenAPI {
 	 */
 	private static function core_routes() {
 		return array(
-			'/wp/v2/posts'            => array(
+			'/wp/v2/posts'               => array(
 				'summary'     => 'List posts',
 				'description' => 'Published posts, newest first. Supports search, pagination and filtering by category or tag.',
 				'params'      => array( 'search', 'page', 'per_page', 'categories', 'tags', 'slug' ),
@@ -63,7 +63,7 @@ class MMSAR_OpenAPI {
 				'description' => 'One post by numeric id.',
 				'path_param'  => 'id',
 			),
-			'/wp/v2/pages'            => array(
+			'/wp/v2/pages'               => array(
 				'summary'     => 'List pages',
 				'description' => 'Published pages. Supports search, pagination and filtering by slug or parent.',
 				'params'      => array( 'search', 'page', 'per_page', 'slug', 'parent' ),
@@ -74,19 +74,19 @@ class MMSAR_OpenAPI {
 				'description' => 'One page by numeric id.',
 				'path_param'  => 'id',
 			),
-			'/wp/v2/search'           => array(
+			'/wp/v2/search'              => array(
 				'summary'     => 'Search the site',
 				'description' => 'Search across every searchable post type at once. Returns id, title, url and type for each hit — fetch the full text from the url with a .md suffix.',
 				'params'      => array( 'search', 'page', 'per_page', 'type', 'subtype' ),
 				'array'       => true,
 			),
-			'/wp/v2/categories'       => array(
+			'/wp/v2/categories'          => array(
 				'summary'     => 'List categories',
 				'description' => 'Every category with its slug and post count.',
 				'params'      => array( 'search', 'page', 'per_page', 'slug' ),
 				'array'       => true,
 			),
-			'/wp/v2/tags'             => array(
+			'/wp/v2/tags'                => array(
 				'summary'     => 'List tags',
 				'description' => 'Every tag with its slug and post count.',
 				'params'      => array( 'search', 'page', 'per_page', 'slug' ),
@@ -389,7 +389,7 @@ class MMSAR_OpenAPI {
 				'summary'     => $summary,
 				'description' => $description,
 				'responses'   => array(
-					'200' => array(
+					'200'     => array(
 						'description' => 'The document.',
 						'content'     => array(
 							$media_type => array( 'schema' => $schema ),
