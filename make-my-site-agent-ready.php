@@ -3,13 +3,12 @@
  * Plugin Name:       Make My Site Agent-Ready
  * Plugin URI:        https://miriamschwab.me/plugins/make-my-site-agent-ready
  * Description:       Makes your WordPress site ready for AI agents: .md URLs, llms.txt, llms-full.txt, an OpenAPI spec, a read-only MCP server, agent-recoverable 404s, security.txt, api-catalog, Agent Skills discovery, Link response headers, Content Signals, optional JSON-LD structured data (merges into Yoast's own schema when active), and AI crawler rules in robots.txt.
- * Version:           1.21.3
+ * Version:           1.22.1
  * Author:            Miriam Schwab
  * Author URI:        https://miriamschwab.me
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       make-my-site-agent-ready
- * Domain Path:       /languages
  * Requires at least: 6.2
  * Requires PHP:      7.4
  *
@@ -20,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MMSAR_VERSION', '1.21.3' );
+define( 'MMSAR_VERSION', '1.22.1' );
 define( 'MMSAR_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MMSAR_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MMSAR_PLUGIN_FILE', __FILE__ );
@@ -51,15 +50,11 @@ require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-structured-data.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/class-mmsar-admin.php';
 require_once MMSAR_PLUGIN_DIR . 'includes/abilities.php';
 
-add_action( 'init', 'mmsar_load_textdomain' );
-/**
- * Mmsar load textdomain.
- *
- * @return void
- */
-function mmsar_load_textdomain() {
-	load_plugin_textdomain( 'make-my-site-agent-ready', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
-}
+// No load_plugin_textdomain() call, and no Domain Path header. Both were pointing at a
+// `languages/` directory that is empty and is not in the distributed zip, so they described
+// something that does not exist. WordPress has loaded plugin translations just in time since 4.6
+// — well below this plugin's 6.2 minimum — so if translations are ever shipped or installed into
+// wp-content/languages/plugins/, they load without either of them.
 
 /**
  * The features that can be switched off individually, and whether each is on by default.
@@ -558,9 +553,12 @@ function mmsar_send_link_headers() {
 	// so an agent reading the header and an agent reading the catalog are told the same thing.
 	// llms-full.txt is deliberately not advertised here: it is the same content at full length, and
 	// it is already in the catalog, so a header on every page view would cost bytes to say it twice.
-	if ( mmsar_feature_enabled( 'llms_txt' ) ) {
-		header( 'Link: <' . esc_url_raw( home_url( '/llms.txt' ) ) . '>; rel="describedby"; type="text/plain"', false );
-	}
+	// The target is resolved per request, not fixed at the root: v2 of the proposal scopes an
+	// llms.txt by path and the most specific file covering the request wins, so a page under a
+	// section that publishes its own index is described by that index. Advertising the root index
+	// on every page left the scoped ones findable only by an agent that had already guessed the
+	// path, which is the v1 failure v2 exists to fix.
+	MMSAR_LLMs_Txt::send_link_header();
 
 	if ( ! mmsar_feature_enabled( 'markdown' ) ) {
 		return;

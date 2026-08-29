@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.22.1 — 2026-08-29
+
+WordPress.org Plugin Check compliance. No behaviour changes — every output this plugin serves is byte-identical to 1.22.0, which is verified rather than assumed: the Agent Skills SKILL.md and the MCP results panel were both captured before and after and hash to the same SHA-256, and the served SKILL.md still matches the digest the discovery index advertises.
+
+### Fixed
+- `Domain Path: /languages` and the `load_plugin_textdomain()` call both pointed at a directory that is empty and has never been included in the distributed zip. WordPress has loaded plugin translations just in time since 4.6 — far below this plugin's 6.2 minimum — so both were removed rather than propped up with an empty folder.
+- `wp_register_ability_category()` now has its own `function_exists()` guard. `includes/abilities.php` already returned early when `wp_register_ability()` was missing, but that is a different function, and a checker cannot see a file-level return from inside a callback. The guard makes the WP 6.9 requirement true by construction.
+- `Tested up to: 7.1`, which is the version this release was actually tested against.
+
+### Changed
+- The two heredoc blocks (`MMSAR_Agent_Skills::skill_md_content()` and `MMSAR_MCP::ui_results_html()`) are assembled from string arrays. Plugin Check disallows heredoc syntax.
+- `readme.txt`'s Changelog keeps only recent releases and points at this file for the rest. WordPress.org truncates that section at 5,000 characters; it had reached roughly 33,000, so most of the history was being cut on the plugin page. Full history stays here.
+- Added `composer.json` describing the two bundled vendor packages — `league/html-to-markdown` and `yahnis-elsts/plugin-update-checker`. Plugin Check flags a `vendor/` directory with no manifest beside it. It is included in the release zip.
+
+### Deliberately not changed
+- `apply_filters( 'robots_txt', … )` in the settings-page preview keeps its unprefixed core hook name, with a `phpcs:ignore` and a comment. The preview is only truthful if it runs the exact chain that builds the served file — every SEO plugin hooks that filter, and a prefixed hook of our own would preview nothing but our own contribution.
+
+## 1.22.0 — 2026-08-29
+
+Scoped llms.txt indexes have generated and served since 1.21.0, but nothing ever advertised them. Every page sent the same `Link: </llms.txt>; rel="describedby"` the homepage did, so `/media/llms.txt` could only be found by an agent that had already guessed the path — precisely the v1 behaviour the [llms.txt v2 proposal](https://llmstxt.org/) exists to replace. v2 states the rule directly: "a file covers the pages under its path, and the most specific file applies."
+
+### Added
+- `MMSAR_LLMs_Txt::section_for_request()`, `::url_for_request()` and `::send_link_header()`. Resolution is a longest-prefix match of the request path against the registered section slugs, read from `REQUEST_URI` so it answers on 404s too, with the home path stripped first so it holds on installs in a subdirectory. Memoized per request.
+- The `describedby` header on all three Markdown responses — `.md` URLs, Markdown 404s, and negotiated Markdown pages. These are served at `template_redirect` priority 1 and exit before the ordinary page headers go out at priority 10, so they previously advertised no index at all. The v2 proposal calls this case out specifically: the header form "also works for non-HTML resources, such as the markdown files themselves", which have no `<head>` to carry a `<link>` element.
+
+### Changed
+- The `describedby` relation on page responses resolves per request rather than being fixed at the root.
+- The footer llms.txt link follows the same scoping and names its section — "Press & Talks index for AI agents (llms.txt)" under `/media/`. The `mmsar_llms_txt_link_text` filter now also receives the resolved URL and the covering section; existing filters are unaffected.
+- 404 recovery points at the covering index, with a label saying which section it covers.
+- Four hand-written copies of the header were replaced by one shared emitter, so the relation and media type cannot drift between them.
+
+### Unchanged, deliberately
+- The advertised media type stays `text/plain`, matching what `serve_llms_txt()` actually sends. The v2 proposal specifies no media type for `describedby` — its canonical example attaches `type="text/markdown"` only to the `rel="alternate"` Markdown-page link, which this plugin already does correctly.
+
 ## 1.21.3 — 2026-08-28
 
 Housekeeping only — no functional change, and the plugin behaves identically.

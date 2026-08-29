@@ -1130,6 +1130,10 @@ class MMSAR_Admin {
 		} else {
 			$content .= "Disallow: /wp-admin/\nAllow: /wp-admin/admin-ajax.php\n";
 		}
+		// Core's own filter, invoked on purpose. The preview is only truthful if it runs the exact
+		// chain that builds the served robots.txt — every SEO plugin hooks this one, and a prefixed
+		// hook of our own would preview nothing but our own contribution.
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Intentional: reproducing core's robots.txt filter chain for the preview.
 		$content = apply_filters( 'robots_txt', $content, $public );
 		echo '<textarea readonly rows="18" class="large-text code" style="background:#f6f7f7;color:#3c434a;">' . esc_textarea( $content ) . '</textarea>';
 		echo '<p class="description">' . esc_html__( 'Read-only preview of the robots.txt output. Some plugins only modify robots.txt on front-end requests, so the served file can differ slightly from this preview — open /robots.txt above to see the real thing.', 'make-my-site-agent-ready' ) . '</p>';

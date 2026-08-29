@@ -21,6 +21,14 @@ add_action( 'wp_abilities_api_categories_init', 'mmsar_register_ability_category
  * @return void
  */
 function mmsar_register_ability_category() {
+	// Guarded separately from the wp_register_ability() check at the top of this file: it is a
+	// different function, and the category API landed alongside but not identically to it. The
+	// callback is only reachable on WP 6.9+ in practice, but the guard makes that true by
+	// construction rather than by the file-level return happening to have run first.
+	if ( ! function_exists( 'wp_register_ability_category' ) ) {
+		return;
+	}
+
 	wp_register_ability_category(
 		'make-my-site-agent-ready',
 		array(

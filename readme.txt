@@ -2,9 +2,9 @@
 Contributors: illuminea
 Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.21.3
+Stable tag: 1.22.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -113,6 +113,21 @@ Use the `mmsar_registered_endpoints` filter for the same thing without a direct 
 
 == Changelog ==
 
+= 1.22.1 - 2026-08-29 =
+* Fix: Plugin Check now passes clean. The plugin declared `Domain Path: /languages` and called `load_plugin_textdomain()` against a directory that is empty and has never been in the distributed zip, so both described something that does not exist; WordPress has loaded plugin translations just in time since 4.6, well below this plugin's 6.2 minimum, so nothing is lost by removing them.
+* Fix: `wp_register_ability_category()` is guarded by its own `function_exists()` check. The abilities file already returned early when the Abilities API was absent, but the category function is a separate one, and the guard now holds by construction rather than by the file-level return happening to have run first.
+* Change: The two heredoc blocks — the Agent Skills SKILL.md and the MCP results panel — are built from string arrays instead. Output is byte-identical: the served SKILL.md hashes to the same SHA-256 the discovery index advertised before the change.
+* Change: The Changelog in this file keeps only recent releases and points at CHANGELOG.md for the rest. WordPress.org truncates this section at 5,000 characters and it had grown to roughly 33,000, so most of the history was being silently cut.
+* Change: Added a composer.json describing the two bundled vendor packages, and it now ships in the release zip alongside vendor/.
+* Change: Tested up to 7.1.
+
+= 1.22.0 - 2026-08-29 =
+* New: The `Link: rel="describedby"` relation now resolves to the scoped llms.txt that covers the page being requested, instead of always pointing at the root index. A page under `/media/` advertises `/media/llms.txt`; a page outside any scoped section still advertises `/llms.txt`. The scoped indexes have generated and served since 1.21.0, but nothing advertised them, so they could only be found by an agent that had already guessed the path — which is the v1 behaviour the llms.txt v2 proposal exists to replace.
+* New: Markdown responses carry the `describedby` header too. A `.md` URL, a Markdown 404 and a negotiated Markdown page all exit before the ordinary page headers are sent, so they previously advertised no index at all. The v2 proposal singles this case out: the header form "also works for non-HTML resources, such as the markdown files themselves", which have no `<head>` to carry a `<link>`.
+* Change: The footer llms.txt link follows the same scoping, and names the section it points at — "Press & Talks index for AI agents" on a page under that section. Two links in one response claiming the same relation and disagreeing about the target is worse than either alone. The `mmsar_llms_txt_link_text` filter now also receives the resolved URL and the covering section.
+* Change: A 404 under a scoped section sends an agent to that section's index rather than the site-wide one — the section it was already in is where the URL it wanted most likely lives.
+* Note: The advertised media type stays `text/plain`, matching what the file is actually served as. The llms.txt v2 proposal specifies no media type for `describedby` at all — its own example attaches `type="text/markdown"` only to the `rel="alternate"` Markdown-page link — so `text/plain` is both accurate and conformant.
+
 = 1.21.3 - 2026-08-28 =
 * Housekeeping: coding-standards cleanup across the includes — array and assignment alignment, one pre-increment, and two parameter names that shadowed PHP reserved words. No functional change; the plugin behaves identically.
 
@@ -122,224 +137,8 @@ Use the `mmsar_registered_endpoints` filter for the same thing without a direct 
 * Fix: Removed a stray blank line from the end of the overview output.
 * Change: Internal code quality. The overview builder was one long function with four conditionals wrapped around unindented blocks; it is now four small methods, one per section. Also removed a dead method and a redundant array_values() call left behind by the 1.21.1 rewrite of the ARD catalog. No behavior change from any of these.
 
-= 1.21.1 - 2026-08-27 =
-* Fix: The Agentic Resource Discovery catalog did not match the ARD specification. It used `resources` where the spec says `entries`, and put a category word in `type` where the spec wants an IANA media type — so validators reported the catalog as present but invalid, with no entries to check. Entries now also carry a trustManifest, capabilities and representative queries. The catalog is served at /.well-known/ard.json as well, which is the address the specification itself names.
-* New: The MCP Apps UI template declares a Content-Security-Policy in the document. A ui:// resource is delivered as a string over the MCP connection rather than as an HTTP response, so there is no header to carry a policy — and the panel needs nothing from the network, so everything is denied.
-* Change: A GET to the MCP endpoint now carries the RateLimit headers alongside its 405. A client or scanner that only ever issues a GET would otherwise never see the policy, which applies to it just the same.
-
-= 1.21.0 - 2026-08-27 =
-* New: llms.txt now opens with a "When to use this" section — what this site is good for, what it is not, and which endpoint to reach for first. Write your own on the settings page, or let the plugin generate one from your content. This is the part of an llms.txt that is about judgement rather than inventory, and it was the piece that was missing.
-* New: /auth.md, a plain-language walkthrough of how an agent gets access. For most sites the honest answer is "no credentials needed", and saying so out loud stops an agent assuming it needs a key it cannot get. Endpoints you listed with an authentication requirement get their own section, written from what you entered.
-* New: /.well-known/ai-catalog.json — an Agentic Resource Discovery catalog listing your MCP server, API, skills and content index as typed entries with stable identifiers.
-* New: /.well-known/mcp/server-card.json — the same MCP server described with full tool detail, so a directory can preview it without opening a connection.
-* New: ?mode=agent on any page returns that page as Markdown; on the homepage it returns a summary of every machine-readable surface your site has.
-* New: Per-section llms.txt files. A site with a Press or Plugins section now also serves /press/llms.txt and /plugins/llms.txt, so an agent chasing one subject can fetch that slice instead of the whole index.
-* New: An optional NLWeb /ask endpoint answering questions about your site, with SSE streaming, plus a Schema Map at /schema-map.xml and a Schemamap directive in robots.txt. Retrieval only — it returns ranked pages from your site, not a generated answer, and says so in every response. Off by default.
-* New: The MCP server returns RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset on every response, and Retry-After on a 429, so an agent can pace itself instead of discovering the limit by hitting it.
-* New: Optional MCP Apps support — an experimental ui:// resource letting a client render search results as a card list in the conversation. Off by default and marked experimental, because no MCP Apps host was available to verify it against.
-* Change: A 404 on a plainly API-shaped path (/api, /api/v1, /v1, /graphql, /wp-json/...) now returns a JSON error even when the client did not ask for JSON. A request to /api/v1 has announced what it is by the request line alone, and answering it with a themed HTML error page is the failure "agents can't parse HTML error pages" actually describes.
-* Change: get_site_overview takes an optional `sections` argument, so an agent that only needs the endpoint list does not pay for the whole overview.
-* Change: The OpenAPI document references its Error schema across the full 4XX and 5XX ranges, and its description now states the authentication position, the rate limits and the deprecation policy.
-* Fix: /auth.md was being swallowed by the .md catch-all rewrite, which resolved it as a page slug and returned a 404. The catch-all now excludes it explicitly rather than relying on rule registration order.
-* Fix: Per-section llms.txt rules were computed before themes registered their custom post types, so no scoped rule was ever registered. They are now built at a later priority.
-
-= 1.20.1 - 2026-08-27 =
-* New: A 404 now answers with a JSON error — the same code/message/data.status shape the REST API uses — when the request asks for JSON. A client calling what it thinks is an API and getting a themed HTML page back cannot tell a wrong URL from a broken server without parsing markup. Browsers are unaffected: JSON has to be named in the Accept header and outrank HTML, which no browser does.
-* New: The MCP discovery manifest carries your site icon, so a directory listing the server has something to show next to its name.
-* Change: Tool input schemas are now closed (additionalProperties: false), and the no-argument tool says so explicitly rather than shipping an empty properties object — both stop a model inventing arguments that would be ignored.
-* Change: The OpenAPI document now references its Error schema everywhere that shape is genuinely returned, which is now everywhere except the .md addresses. Those answer in Markdown even when the answer is "nothing here", and the spec says so rather than promising JSON.
-
-= 1.20.0 - 2026-08-27 =
-* New: An OpenAPI specification at /openapi.json, generated from what your site actually serves — the endpoints this plugin publishes, the REST routes really registered on your install, and anything you added under Endpoints. Everything else here tells an agent what exists; this is the file that tells an HTTP client how to call it, and it is what agent-readiness scanners look for. Skipped automatically if you already have a real openapi.json in your site root.
-* New: A read-only MCP server, off by default. Switch it on and AI clients that speak the Model Context Protocol can connect to your site directly, with four tools: search the content, list it, read any page as Markdown, and get an overview of the site. It is strictly read-only, limited to the published content in the post types you have enabled, and rate-limited to 60 calls a minute per IP — it exposes nothing that llms-full.txt does not already publish. A discovery manifest is served at /.well-known/mcp.json.
-* New: Agent-recoverable 404s. A normal 404 tells an agent its URL was wrong and nothing more, which leaves it with no way to find the page it wanted. Every 404 now carries Link headers and <link> tags pointing at your sitemap, llms.txt and endpoint catalog, and a client that explicitly asked for Markdown gets a short list of those destinations instead of the themed error page. Your 404 page looks exactly the same to visitors.
-* New: llms.txt now opens with a "For agents" section naming the machine-readable endpoints your site publishes. It is the file an agent is most likely to fetch first, and until now it said nothing about the rest.
-* Change: A missing .md URL now returns the same recovery list rather than a one-line "not found", and says specifically what went wrong — no such page, wrong post type, or nothing to convert.
-
-= 1.19.0 - 2026-08-26 =
-* New: "Export CSV" on the Agent Log screen. It writes every entry, not just the page on screen, with timestamps in UTC — the screen shows them in your site's timezone, and the column name says which you are holding. Values that a spreadsheet would run as a formula are neutralized on the way out, because the agent column holds a string the caller chose.
-* New: A `get-agent-log` ability, so an AI agent connected to your site can read the log and tell you what is in it. It returns counts by agent, by surface and by day across the whole log, plus a page of individual entries, and reports whether logging is on, whether page views are being recorded, and the five-minute throttle — the three things that decide what the numbers can honestly be read to mean. Ask for `summary_only` to get the aggregates without any IP addresses. Administrators only, like the screen.
-
-= 1.18.1 - 2026-08-23 =
-* Fix: The content negotiation check could report the feature "working" when it was switched off. Some CDNs — Cloudflare among them — convert pages to markdown at the edge when they see the same Accept header, so markdown came back and the check credited it to this plugin. It now compares the response against the markdown the plugin actually generates and says plainly when something else is answering.
-* New: A result for that case. If markdown comes back but it isn't yours, the check says so, names the likely cause, and points out that an edge conversion carries your site navigation and misses the frontmatter this plugin writes.
-* Change: The content negotiation section now links to the switch that controls it, in the Features list at the top of the page. The section holds only the check, so it read as though there was no way to turn the feature on.
-
-= 1.18.0 - 2026-08-23 =
-* New: Markdown content negotiation is back, off by default. With it on, a request for an ordinary page URL is answered with that page's markdown when the request's Accept header asks for markdown — which is how AI clients actually ask. The .md addresses are unchanged and keep working either way.
-* New: A self-check for it, at Settings > Agent-Ready. It asks your site for one of its own pages twice — once the way an AI client asks, then the same URL the way a browser asks — and tells you which version came back each time, along with the Cache-Control and Vary headers that actually arrived. The check is what makes this feature offerable at all: the reason it was withdrawn in 1.15.0 was that the failure could not be detected. It can now.
-* Note: the one thing to watch for is a visitor opening a page in a browser and getting a markdown file, or a download prompt, instead of the page. That means a cache in front of your site is ignoring the Vary: Accept header and handing the markdown copy to everyone; Cloudflare is known to do this. Switch content negotiation off if you see it. If the self-check catches that condition itself, it switches the feature off for you and says so.
-* Note: a site that had this feature switched on back in 1.13.0 or 1.13.1 still has that setting stored. Updating clears it, so content negotiation starts off for everyone and stays off until you turn it on and the check has run.
-
-= 1.17.1 - 2026-08-23 =
-* Change: Spelling normalized to US English throughout the plugin's text — settings descriptions, readme and code comments. No functional change.
-
-= 1.17.0 - 2026-08-23 =
-* New: A "Recent Agent Requests" dashboard widget showing the 20 most recent entries — agent, what it fetched, and how long ago — with a link to the full log. Hide it like any dashboard widget, from Screen Options.
-
-= 1.16.1 - 2026-08-23 =
-* Fix: Entries carried over from the previous version's log could be imported twice, so every migrated row appeared as a duplicate pair. Two requests arriving during the same upgrade each read the old option before either had deleted it, and both wrote its contents into the new table. The migration is now claimed atomically, so exactly one request can perform it however many arrive at once. If you already see duplicates, use "Clear log" once — nothing is imported again.
-
-= 1.16.0 - 2026-08-23 =
-* New: The agent request log has its own screen at Settings > Agent Log, with pagination, a "Clear log" button, and a setting for how many entries to keep. The default is unlimited.
-* Change: The log now stores entries in its own database table instead of an option. Keeping an unlimited log in an option meant every recorded request read and rewrote the entire history — about 63KB of read and write per request once 200 entries had built up, and growing without limit from there. A table appends at the same cost no matter how large the log gets, and lets the screen page through it. Existing entries are migrated automatically on update, and the table is dropped on uninstall.
-* Note: this makes the agent log the one feature that adds a database table, and only once you switch it on. The readme no longer claims the plugin adds none.
-* Change: Minimum WordPress version is now 6.2 (was 6.0), for `$wpdb->prepare()`'s `%i` identifier placeholder — it lets the log's table name be passed through prepare() like any other value instead of interpolated into the query. WordPress 6.2 was released in April 2023.
-
-= 1.15.1 - 2026-08-21 =
-* Fix: "Visit plugin site" no longer appears twice on the Plugins screen. WordPress core already adds that link for any plugin that sets a Plugin URI header and is not installed from WordPress.org, and the plugin was appending a second, identical one. Core's link is kept; the filter that added the duplicate is removed.
-
-= 1.15.0 - 2026-08-19 =
-* Removed: Markdown by content negotiation, added in 1.13.0. Serving markdown from the canonical URL depends on `Vary: Accept` being honored, and Cloudflare does not include `Accept` in its cache key — so a markdown response cached for a URL was handed to the next visitor who opened it in a browser, as a file download instead of the page. Marking the response uncacheable did not help on the host tested, because the host rewrote the `Cache-Control` header on its way out. A plugin at the origin cannot guarantee either condition, and the failure lands on human visitors, so the feature has been withdrawn rather than shipped with a warning.
-* Fix: The agent request log now keeps its own record and no longer depends on the Activity Log plugin being loaded. That plugin's API is available in wp-admin but not on front-end requests on some hosts, which is exactly when agent traffic arrives — so every entry was being dropped at the point it mattered, with nothing to show for it. Entries are now listed on the Agent-Ready settings page itself (most recent 200), and still copied to Activity Log wherever its API is reachable. Database errors from the Activity Log copy are also suppressed, so a stale schema in that plugin cannot surface errors in a response being served.
-* Change: The footer llms.txt link's description no longer claims to be "the only way a fetch tool reliably finds it". Testing showed Anthropic's WebFetch extracts a page's main content and discards headers and footers, so a footer link does not reach it. It does reach crawlers that fetch and store raw HTML, which is what the description now says.
-
-= 1.14.0 - 2026-08-19 =
-* New: Optional visible link to your llms.txt in the site footer (off by default). Tested against Anthropic's WebFetch on a live site: it receives only the response body converted to markdown, and discards HTTP headers and `<link>` elements from `<head>`. So the `Link: rel="describedby"` header, the `Llms-txt:` robots.txt directive, the api-catalog entry and the Agent Skills index are all invisible to that class of client — a site can advertise llms.txt four ways and still not be showing it to the tools most likely to look. A real link in the page body is the one channel that survives. Off by default because it is the only thing this plugin adds that a visitor can see; the text is filterable via `mmsar_llms_txt_link_text`.
-
-= 1.13.1 - 2026-08-19 =
-* Fix: Markdown served by content negotiation is now marked uncacheable (`Cache-Control: private, no-store`). `Vary: Accept` is advisory and Cloudflare ignores it, so a markdown response cached for a URL was being served to the next visitor who requested that URL in a browser — a person got a file download instead of the page. Found on a live CDN-fronted site within minutes of enabling the feature. Marking the response uncacheable removes the possibility rather than relying on `Vary`. The trade-off: a page already cached as HTML keeps being served as HTML to agents too, so negotiation works on cache misses and does nothing on hits. That is the correct direction to fail — an agent getting HTML, never a person getting a file.
-
-= 1.13.0 - 2026-08-19 =
-* New: Markdown by content negotiation (off by default). Fetch tools ask for markdown with an `Accept` header on the normal page URL rather than looking for a separate `.md` address — Anthropic's WebFetch does this, and a CDN that converts your HTML may already be answering it with a whole-page conversion including your navigation. With this on, the same clean markdown the `.md` endpoint serves is returned from the canonical URL instead. Browsers are unaffected: markdown must be named explicitly and outrank HTML, a wildcard counts only towards HTML, and a tie goes to HTML. `Vary: Accept` is sent on both representations.
-* New: Agent request log (off by default). Records which agents fetch the files this plugin publishes, and what they asked for, into the Activity Log plugin under the type "Agent-Ready". Nothing is recorded on an ordinary page view — the log is written from the plugin's own endpoints, so a normal request costs nothing. An optional sub-setting also records page views from recognized AI crawlers, which is what lets you see who visited and ignored these files rather than only who used them. The same agent, file and IP is recorded at most once every five minutes.
-
-
-= 1.12.1 - 2026-08-19 =
-* Fix: Rules typed into Additional Rules are now appended at the very end of the robots.txt filter chain instead of alongside the AI-crawler rules, so another plugin can no longer rewrite or delete them. Yoast strips every `User-agent: * / Disallow: /wp-admin/ / Allow: /wp-admin/admin-ajax.php` block it finds — not just WordPress core's — so an owner who pasted those three lines here lost them from the served robots.txt while the settings preview still showed them, because Yoast's robots.txt code only runs on front-end requests. Extra rules now survive regardless of what other plugins do, and no longer need to be written in an unusual line order to get through.
-
-= 1.12.0 - 2026-08-13 =
-* New: `robots.txt` now carries an `Llms-txt:` directive pointing at `/llms.txt`. The site was publishing an llms.txt and advertising it in the api-catalog and the Agent Skills index, but said nothing about it in the one file agents and agent-readiness checkers fetch first. There is no ratified robots.txt directive for llms.txt, and compliant parsers ignore directives they do not recognize, so the line cannot affect crawling.
-* New: A `Link: <.../llms.txt>; rel="describedby"; type="text/plain"` header on every front-end response, alongside the existing api-catalog and Agent Skills headers. Same relation and media type the api-catalog already uses for llms.txt, so header-reading and catalog-reading agents are told the same thing.
-* Fix: Switching a feature off now always flushes rewrite rules, whichever way the setting was written. Saving on the settings page already did this; a change made by WP-CLI or by another plugin did not, leaving the endpoint reachable after its feature was switched off. The pending flush also survives for a day rather than a minute, so it still happens on a site that gets no traffic immediately afterwards.
-* Both new outputs are skipped when the llms.txt feature is switched off, so neither ever points at a 404. The robots.txt directive is also skipped on sites set to discourage search engines, and when the finished robots.txt already mentions llms.txt — an owner who added the line by hand under Additional Rules keeps theirs instead of getting it twice.
-
-= 1.11.0 - 2026-08-12 =
-* Fix: An endpoint published in the api-catalog, llms.txt or Agent Skills index is no longer blocked by a `Disallow` rule in the same robots.txt. The plugin now adds an `Allow:` line for the individual endpoint path, in the same user-agent group and above the rule that blocks it, so compliant crawlers apply the more specific rule and the endpoint stays reachable while the broader path stays disallowed. This mattered most for `/wp-json/`, which Yoast SEO disallows by default (the "deny_wp_json_crawling" option) — a site could advertise a REST endpoint in three discovery documents and tell agents to stay off it in the fourth.
-* The Allow paths are derived from the same registered-endpoint list that feeds those three documents, so endpoints added on the settings page and endpoints registered in code by a plugin or theme are both covered, and the two can't drift apart.
-* Lines are only added where they are actually needed: nothing is emitted for an endpoint no rule blocks, for one already allowed by an equally specific rule, or for one hosted on another domain. On sites set to discourage search engines (blog_public = 0) the file is left alone entirely, matching the existing behavior for AI crawler rules.
-
-= 1.10.1 - 2026-08-12 =
-* Fix: The files this plugin publishes now send their own `Cache-Control` header (`public, max-age=300, s-maxage=300`) instead of inheriting whatever the host or CDN applies by default. On a CDN-fronted site that default can be very long — one real install had `/.well-known/api-catalog` pinned at the edge for a week, so an endpoint added on the settings page was published correctly by the site but not visible to anyone fetching it. Changes now appear within about five minutes. Use the `mmsar_document_max_age` filter to change the duration, or return 0 to disable caching entirely.
-
-= 1.10.0 - 2026-08-12 =
-* New: Add and manage endpoints from Settings > Agent-Ready — no code required. Give it a name and a URL, tick which of the three documents it belongs in, and save. Optional fields for methods, content type, authentication and link relation are tucked behind "Technical details".
-* New: Three abilities for the WordPress Abilities API (WP 6.9+) — list-endpoints, set-endpoint and delete-endpoint — so an AI agent connected through the MCP Adapter can manage the same list. Endpoints registered in code by a plugin or theme are read-only to these, and are reported as such rather than appearing to change.
-* New: Each saved endpoint reports where it is actually being published, and says why when it isn't — a mistyped URL or an unticked document is stated on the row instead of the entry quietly disappearing.
-* Change: Endpoints registered in code by a plugin or theme now appear under their own read-only "Added by Plugins" heading, separate from the ones you manage.
-
-= 1.9.0 - 2026-08-12 =
-* New: Other plugins and themes can now add their own endpoints to the files this plugin publishes. An endpoint registered once with `mmsar_register_endpoint()` (or the `mmsar_registered_endpoints` filter) is listed in `/.well-known/api-catalog`, `/llms.txt`, and the Agent Skills index, so something like an agent-ready contact form becomes discoverable everywhere agents look. Registered endpoints are shown read-only on the settings page.
-* New: `mmsar_api_catalog_linkset`, `mmsar_llms_txt_content`, and `mmsar_agent_skills_index` filters, for changes the endpoint registry does not cover.
-* No change to existing behavior: a site with nothing registered publishes byte-for-byte the same files it did before.
-
-= 1.8.2 - 2026-08-05 =
-* Hardening: the request URI used for canonical-redirect checks is now sanitized and parsed with wp_parse_url(); admin output is explicitly escaped. Code documentation and WordPress coding-standards cleanup. No changes to behavior.
-
-= 1.8.1 - 2026-07-22 =
-* Fix (packaging): The zip you get by downloading the repo from GitHub ("Download ZIP" or a release's "Source code" asset) now contains only the plugin files, not the `.github/` CI config or dev docs. No functional change to the plugin.
-
-= 1.8.0 - 2026-07-21 =
-* Change: The settings page is easier to navigate. The old "Quick Links" list at the bottom is gone — each feature toggle at the top now carries its own "View" link to the live file (shown only while the feature is on), so everything is in one place.
-* Change: Feature toggles that have more to configure (Markdown URLs, robots.txt, security.txt) now show a "Configure below ↓" link that jumps to the matching settings section, so options like the robots.txt Additional Rules box and the security.txt Contact field are easier to find.
-
-= 1.7.1 - 2026-07-21 =
-* Security: Password-protected posts could appear in `/llms-full.txt` and `/llms.txt` (the per-page `.md` endpoint already blocked them). Both aggregate feeds now exclude password-protected content, and password-protecting a post clears its cached markdown.
-* Security: The security.txt Contact line now only accepts safe URI schemes (https, http, mailto, tel), so an unsafe scheme like `javascript:` can no longer be published.
-* Fix: Content Signals sanitization no longer falls back to "yes" for `ai-train` — a malformed value now correctly defaults to "no", matching the setting's own default.
-* Fix: Markdown `.md` responses now explicitly require a published post (defense in depth against edge permalink setups resolving to non-public content).
-* Change: Agent Skills discovery (SKILL.md and index.json) now documents only the endpoints that are actually enabled, so agents aren't sent to 404s when a feature is switched off.
-* Change: On sites set to discourage search engines (blog_public = 0), the plugin no longer adds `Allow: /` AI-crawler rules to robots.txt, respecting the admin's intent.
-* Change: api-catalog advertises llms.txt / llms-full.txt as `text/plain`, matching the headers they actually send.
-
-= 1.7.0 - 2026-07-20 =
-* New: Every feature can now be switched off individually under Settings > Agent-Ready — markdown URLs, llms.txt, llms-full.txt, robots.txt rules, security.txt, api-catalog, and Agent Skills discovery. All default to on, so updating changes nothing until you choose otherwise.
-* New: Turning off robots.txt handling stops the plugin both appending AI crawler rules and routing /robots.txt through WordPress, so a hand-maintained or SEO-plugin-managed robots.txt is left completely alone. The settings screen explains what you give up before you switch it off.
-* New: security.txt now has a dedicated Security Contact field that accepts a full URL, a path like /contact, or an email address, and formats it into a valid RFC 9116 Contact line. With nothing set it falls back to the site admin email instead of guessing a /contact URL that may not exist.
-* Fix: The Sitemap directive in robots.txt, and the sitemap entry in `/.well-known/api-catalog`, no longer hardcode Yoast's `sitemap_index.xml`. Both now detect Yoast, Rank Math, All in One SEO, SEOPress, or WordPress core sitemaps and use the right URL — previously sites without a Yoast-style sitemap advertised a URL that 404s.
-* Fix: `/.well-known/api-catalog` now lists only the endpoints that are actually enabled, instead of always advertising llms.txt, llms-full.txt, security.txt and the Agent Skills index regardless of the feature toggles.
-* Fix: The Sitemap directive is added at the very end of the robots.txt filter chain, so it correctly stands down when an SEO plugin has already added one. Yoast hooks that filter at priority 99999, so the previous check ran too early to see its output and emitted a duplicate Sitemap line.
-
-= 1.6.1 - 2026-07-15 =
-* Fix: the Yoast schema injection added in 1.6.0 never actually registered — it was gated behind `defined('WPSEO_VERSION')` at plugin-load time, but plugin load order isn't guaranteed, so that check could run before Yoast's own file had loaded and defined the constant. The filters are now registered unconditionally; they simply never fire if Yoast isn't active.
-
-= 1.6.0 - 2026-07-14 =
-* Change: JSON-LD structured data now merges into Yoast SEO's own `Article`/`WebPage` schema piece (via Yoast's `wpseo_schema_article`/`wpseo_schema_webpage` filters) when Yoast is active and produces schema for the page, instead of always adding a separate block. Falls back to the standalone block from 1.5.0 when Yoast isn't active or doesn't cover the page.
-* Change: the admin conflict notice and settings description updated to reflect the new Yoast-merge behavior; RankMath (or other non-Yoast SEO plugins) still gets the standalone-block warning.
-
-= 1.5.0 - 2026-07-14 =
-* New: Optional JSON-LD structured data (`Article`/`WebPage`) on enabled posts/pages, pointing at the markdown alternate. Off by default; new admin notice warns if enabled alongside an active SEO plugin (Yoast/RankMath).
-* Prompted by the plugin's own agent-readiness gap tracking
-
-= 1.4.3 - 2026-07-06 =
-* New: Content Signals — `Content-Signal: search=..., ai-input=..., ai-train=...` (contentsignals.org / IETF AI Preferences draft) added under each AI crawler's group in robots.txt. Configurable in Settings > Agent-Ready (three yes/no toggles); defaults to search=yes, ai-input=yes, ai-train=no.
-* Prompted by isitagentready.com flagging the absence of Content Signals in robots.txt
-
-= 1.4.2 - 2026-07-06 =
-* New: Link response headers (RFC 8288) on every front-end response — points agents to api-catalog and the Agent Skills index; singular posts/pages add a third pointing to their markdown alternate
-* Prompted by isitagentready.com flagging the homepage's missing Link headers
-
-= 1.4.1 - 2026-07-06 =
-* Fix: the broad `.md` catch-all rewrite rule (used for post/page markdown URLs) also matched `/.well-known/agent-skills/*/SKILL.md`, causing the Agent Skills file to 404. The catch-all now excludes `/.well-known/` paths.
-
-= 1.4.0 - 2026-07-06 =
-* New: /.well-known/api-catalog endpoint (RFC 9727) indexing llms.txt, llms-full.txt, security.txt, the Agent Skills index, sitemap, and feed
-* New: Agent Skills discovery — /.well-known/agent-skills/index.json plus a bundled skill teaching agents how to use this plugin's markdown endpoints
-* Improvement: version bumps now auto-flush rewrite rules so new endpoints work without a manual Permalinks resave
-
-= 1.3.0 - 2026-06-15 =
-* Rename: plugin renamed to "Make My Site Agent-Ready" with slug make-my-site-agent-ready
-* New: /llms-full.txt endpoint serving full site content concatenated as markdown
-* New: /.well-known/security.txt endpoint with configurable content in Settings
-* New: AI crawler rules (GPTBot, ClaudeBot, Anthropic-AI, GoogleOther, PerplexityBot, FacebookBot) in robots.txt
-* Fix: trailing slash redirect on /llms.txt (and other plugin endpoints) caused by WordPress canonical redirect
-* Abilities: regenerate-files ability now always registered; marked destructive so AI confirms before running
-* Abilities: removed write abilities opt-in checkbox — destructive annotation handles confirmation
-
-= 1.2.2 - 2026-06-01 =
-* Fix: $input = null for PHP 8 compatibility in abilities execute callbacks
-
-= 1.2.1 - 2026-06-01 =
-* Fix: meta.mcp.public key in abilities registration
-
-= 1.2.0 - 2026-06-01 =
-* Add: WordPress Abilities API integration (get-settings, regenerate-files)
-
-= 1.1.2 - 2026-05-24 =
-* Fix: YAML frontmatter url and markdown_url fields now quoted for spec compliance
-* Fix: Markdown link titles in llms.txt now escape ] characters to prevent broken links
-* Fix: Version check moved into plugins_loaded hook
-* Add: llmmd_bulk_generate_limit filter for large-site memory control
-* Internal docs removed from repository
-
-= 1.1.1 - 2026-05-20 =
-* Replace "View details" plugin row link with "Visit plugin site"
-
-= 1.1.0 - 2026-05-20 =
-* Security: sanitize CSS selectors to prevent XPath injection
-* Security: add X-Content-Type-Options: nosniff header on .md responses
-* Security: use $wpdb->prepare() in uninstall.php
-* Fix YAML escape order (backslashes before quotes)
-* Auto-clear llms.txt transient on plugin version upgrade
-
-= 1.0.5 - 2026-05-20 =
-* Decode HTML entities in llms.txt
-
-= 1.0.4 - 2026-05-20 =
-* Decode HTML entities in YAML frontmatter
-
-= 1.0.3 - 2026-05-20 =
-* Fix front page /index.md
-* Add alternate link tag to homepage
-
-= 1.0.2 - 2026-05-20 =
-* Fix front page /index.md returning 404
-
-= 1.0.1 - 2026-05-20 =
-* Add post excerpts/descriptions to llms.txt entries
-
-= 1.0.0 - 2026-05-20 =
-* Initial release.
+Older releases are listed in CHANGELOG.md in the plugin's GitHub repository:
+https://github.com/MirSquad/make-my-site-agent-ready/blob/main/CHANGELOG.md
 
 == Upgrade Notice ==
 

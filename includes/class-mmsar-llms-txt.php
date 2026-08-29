@@ -27,12 +27,13 @@ class MMSAR_LLMs_Txt {
 		add_action( 'init', array( __CLASS__, 'add_rewrite_rules' ), 20 );
 		add_filter( 'query_vars', array( __CLASS__, 'add_query_vars' ) );
 		add_action( 'template_redirect', array( __CLASS__, 'serve_llms_txt' ) );
-		// A visible link in the page body is the only channel that reaches a fetch tool reliably.
-		// Tested against Anthropic's WebFetch on a live site: it receives the response body converted
-		// to markdown, and discards both HTTP headers and <link> elements from <head> — so the
-		// `Link: rel="describedby"` header and a <link> tag are equally invisible to it. Body content
-		// and inline JSON-LD are what survive. Hence a real link, in the body, that a person could
-		// also click.
+		// A visible link in the page body, which is what the llms.txt proposal asks for. Its reach
+		// is narrower than the first version of this comment claimed: measured against Anthropic's
+		// WebFetch on a live site, that tool extracts a page's main content and discards the
+		// chrome, so it sees a footer link no better than it sees the Link header — main-content
+		// links and inline JSON-LD are what survive. What a footer link does reach is crawlers
+		// that fetch and store raw HTML, and people. Off by default; see the decisions log entry
+		// "The footer llms.txt link is described by what was measured".
 		if ( mmsar_feature_enabled( 'llms_txt_footer_link' ) ) {
 			add_action( 'wp_footer', array( __CLASS__, 'render_footer_link' ) );
 		}
@@ -150,6 +151,11 @@ class MMSAR_LLMs_Txt {
 	 * anything removed from the accessibility tree is also liable to be removed by the HTML-to-
 	 * markdown conversion agents fetch through, which would defeat the entire purpose.
 	 *
+	 * Points at the same index the Link header advertises, resolved per request. Two links in one
+	 * response claiming the same relation and disagreeing about the target is a worse answer than
+	 * either of them alone, and on a page a scoped index covers, that index is the better one for
+	 * a reader too — the scoped file names the section it covers and points back at the root.
+	 *
 	 * @return void
 	 */
 	public static function render_footer_link() {
@@ -157,16 +163,26 @@ class MMSAR_LLMs_Txt {
 			return;
 		}
 
+		$section = self::section_for_request();
+		if ( $section ) {
+			/* translators: %s: plural name of a content section, e.g. "Media". */
+			$default = sprintf( __( '%s index for AI agents (llms.txt)', 'make-my-site-agent-ready' ), $section['label'] );
+		} else {
+			$default = __( 'Site index for AI agents (llms.txt)', 'make-my-site-agent-ready' );
+		}
+
 		/**
 		 * Filters the link text shown in the footer.
 		 *
-		 * @param string $text Link text.
+		 * @param string     $text    Link text.
+		 * @param string     $url     The llms.txt this link points at for the current request.
+		 * @param array|null $section The covering section, or null when this is the root index.
 		 */
-		$text = (string) apply_filters( 'mmsar_llms_txt_link_text', __( 'Site index for AI agents (llms.txt)', 'make-my-site-agent-ready' ) );
+		$text = (string) apply_filters( 'mmsar_llms_txt_link_text', $default, self::url_for_request(), $section );
 
 		printf(
 			'<p class="mmsar-llms-txt-link" style="text-align:center;font-size:0.8em;opacity:0.7;margin:1em 0;"><a href="%1$s" rel="describedby">%2$s</a></p>',
-			esc_url( home_url( '/llms.txt' ) ),
+			esc_url( self::url_for_request() ),
 			esc_html( $text )
 		);
 	}
@@ -308,6 +324,126 @@ class MMSAR_LLMs_Txt {
 		 */
 		$filtered = apply_filters( 'mmsar_llms_txt_sections', $sections );
 		return is_array( $filtered ) ? $filtered : $sections;
+	}
+
+	/**
+	 * The section whose scoped llms.txt covers the current request.
+	 *
+	 * Version 2 of the proposal scopes a file by path — it covers the pages beneath it, and the
+	 * most specific file wins. Until now every page advertised the root index, which left the scoped
+	 * indexes reachable only by an agent that had already guessed the path: exactly the v1
+	 * behaviour v2 set out to replace. So the relation is resolved per request instead.
+	 *
+	 * Matching is on the request path alone, not on the queried post type. Coverage is a property
+	 * of the URL in the proposal, so `/media/llms.txt` describes everything under `/media/`,
+	 * including that section's archive and its paged views. A post whose permalink does not sit
+	 * under its section's slug is correctly left with the root index — the scoped file does not
+	 * cover it, whatever it lists.
+	 *
+	 * @return array|null [ 'slug', 'post_type', 'label' ] for the covering section, or null.
+	 */
+	public static function section_for_request() {
+		static $resolved = false;
+		static $match    = null;
+
+		if ( $resolved ) {
+			return $match;
+		}
+		$resolved = true;
+
+		$path = self::request_path();
+		if ( '' === $path ) {
+			return $match;
+		}
+
+		$best_len = 0;
+		foreach ( self::sections() as $slug => $section ) {
+			$slug = trim( (string) $slug, '/' );
+			if ( '' === $slug ) {
+				continue;
+			}
+			// "Beneath its path" includes that path itself, so a section archive is described by
+			// its own index rather than falling back to the root one.
+			if ( $path !== $slug && 0 !== strpos( $path, $slug . '/' ) ) {
+				continue;
+			}
+			// Most specific wins. sections() rejects multi-segment slugs, so in practice there is
+			// only ever one candidate — but the mmsar_llms_txt_sections filter runs after that
+			// check and can add one, and "most specific wins" is the rule the proposal states, so
+			// the rule is what gets implemented rather than the shape today's data happens to have.
+			$len = strlen( $slug );
+			if ( $len > $best_len ) {
+				$best_len = $len;
+				$match    = array_merge( array( 'slug' => $slug ), $section );
+			}
+		}
+
+		return $match;
+	}
+
+	/**
+	 * The llms.txt URL that describes the current request.
+	 *
+	 * @return string Absolute URL of the covering scoped index, or of the root index.
+	 */
+	public static function url_for_request() {
+		$section = self::section_for_request();
+		if ( $section ) {
+			return home_url( '/' . $section['slug'] . '/llms.txt' );
+		}
+		return home_url( '/llms.txt' );
+	}
+
+	/**
+	 * Emits the `describedby` Link header for the current request.
+	 *
+	 * Shared, because this now goes out from four places — the ordinary page response and the three
+	 * Markdown responses — and four hand-written copies of one header is how the relation and the
+	 * media type drift apart. The proposal asks for the header form specifically because it "also
+	 * works for non-HTML resources, such as the markdown files themselves": those responses have no
+	 * <head> to carry a <link>, so the header is the only channel they have.
+	 *
+	 * Sent without replacing, so it joins any Link header already set rather than evicting it. Call
+	 * it *after* any header( 'Link: ...' ) that replaces, or that one will wipe this out.
+	 *
+	 * @return void
+	 */
+	public static function send_link_header() {
+		if ( ! mmsar_feature_enabled( 'llms_txt' ) ) {
+			return;
+		}
+		header( 'Link: <' . esc_url_raw( self::url_for_request() ) . '>; rel="describedby"; type="text/plain"', false );
+	}
+
+	/**
+	 * The requested path, relative to the site root and without surrounding slashes.
+	 *
+	 * Read from REQUEST_URI rather than from the resolved query, because this has to answer on a
+	 * 404 as well, where there is no queried object to ask. The home path is stripped first so the
+	 * comparison still holds on an install in a subdirectory, where every request path carries
+	 * that prefix and would otherwise never match a section slug.
+	 *
+	 * @return string Site-relative path, or '' at the site root.
+	 */
+	private static function request_path() {
+		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+		if ( '' === $request_uri ) {
+			return '';
+		}
+
+		$path = trim( rawurldecode( (string) wp_parse_url( $request_uri, PHP_URL_PATH ) ), '/' );
+		$home = trim( (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH ), '/' );
+
+		if ( '' !== $home ) {
+			if ( $path === $home ) {
+				return '';
+			}
+			if ( 0 === strpos( $path . '/', $home . '/' ) ) {
+				$path = trim( substr( $path, strlen( $home ) ), '/' );
+			}
+		}
+
+		return $path;
 	}
 
 	/**

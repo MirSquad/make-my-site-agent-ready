@@ -1390,89 +1390,92 @@ class MMSAR_MCP {
 	private static function ui_results_html() {
 		$site_name = esc_html( html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
 
-		return <<<HTML
-<!doctype html>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<!-- Declared in the document because a ui:// resource is delivered as a string over the MCP
-     connection rather than as an HTTP response, so there is no header to carry a policy. The panel
-     needs nothing from the network: its markup, styles and script are all inline, and the only
-     external thing it references is the href of a result link the viewer may click. Everything
-     else is denied, so a result title that somehow carried markup still cannot fetch or execute. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; frame-ancestors *">
-<title>Results</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 0; padding: 12px;
-         background: transparent; color: #111; }
-  @media (prefers-color-scheme: dark) { body { color: #eee; } }
-  h1 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; opacity: .6; margin: 0 0 10px; font-weight: 600; }
-  ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-  li { border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 8px; padding: 10px 12px; }
-  a { color: inherit; text-decoration: none; font-weight: 600; }
-  a:hover { text-decoration: underline; }
-  p { margin: 4px 0 0; opacity: .72; font-size: 13.5px; }
-  .meta { margin-top: 6px; font-size: 12px; opacity: .55; }
-  .empty { opacity: .6; font-size: 13.5px; }
-</style>
-<h1>{$site_name}</h1>
-<div id="out"><p class="empty">Waiting for results…</p></div>
-<script>
-(function () {
-  var out = document.getElementById('out');
-
-  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
-    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
-  }); }
-
-  function render(items) {
-    if (!items || !items.length) { out.innerHTML = '<p class="empty">No results.</p>'; return; }
-    out.innerHTML = '<ol>' + items.map(function (r) {
-      var url = esc(r.url || r.link || '');
-      var name = esc(r.name || r.title || url);
-      var desc = esc(r.description || r.excerpt || '');
-      var meta = esc([r.type, r.date].filter(Boolean).join(' · '));
-      return '<li><a href="' + url + '" target="_blank" rel="noopener">' + name + '</a>'
-        + (desc ? '<p>' + desc + '</p>' : '')
-        + (meta ? '<div class="meta">' + meta + '</div>' : '')
-        + '</li>';
-    }).join('') + '</ol>';
-  }
-
-  // Hosts disagree about how tool output reaches a UI resource, so try each known shape and take
-  // whichever answers. None of these throws if the global is absent.
-  function fromAny(payload) {
-    if (!payload) return null;
-    if (Array.isArray(payload)) return payload;
-    return payload.results || payload.items || payload.structuredContent || null;
-  }
-
-  try {
-    if (window.openai && window.openai.toolOutput) {
-      var direct = fromAny(window.openai.toolOutput);
-      if (direct) { render(direct); return; }
-    }
-  } catch (e) {}
-
-  try {
-    if (window.mcp && typeof window.mcp.getToolOutput === 'function') {
-      Promise.resolve(window.mcp.getToolOutput()).then(function (o) {
-        var r = fromAny(o); if (r) render(r);
-      }).catch(function () {});
-    }
-  } catch (e) {}
-
-  window.addEventListener('message', function (event) {
-    var data = event && event.data;
-    if (!data) return;
-    var r = fromAny(data.toolOutput || data.structuredContent || data);
-    if (r) render(r);
-  });
-
-  try { window.parent && window.parent.postMessage({ type: 'mcp-ui-ready' }, '*'); } catch (e) {}
-})();
-</script>
-HTML;
+		return implode(
+			"\n",
+			array(
+				'<!doctype html>',
+				'<meta charset="utf-8">',
+				'<meta name="viewport" content="width=device-width,initial-scale=1">',
+				'<!-- Declared in the document because a ui:// resource is delivered as a string over the MCP',
+				'     connection rather than as an HTTP response, so there is no header to carry a policy. The panel',
+				'     needs nothing from the network: its markup, styles and script are all inline, and the only',
+				'     external thing it references is the href of a result link the viewer may click. Everything',
+				'     else is denied, so a result title that somehow carried markup still cannot fetch or execute. -->',
+				'<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; script-src \'unsafe-inline\'; img-src data:; form-action \'none\'; base-uri \'none\'; frame-ancestors *">',
+				'<title>Results</title>',
+				'<style>',
+				'  :root { color-scheme: light dark; }',
+				'  body { font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 0; padding: 12px;',
+				'         background: transparent; color: #111; }',
+				'  @media (prefers-color-scheme: dark) { body { color: #eee; } }',
+				'  h1 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; opacity: .6; margin: 0 0 10px; font-weight: 600; }',
+				'  ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }',
+				'  li { border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 8px; padding: 10px 12px; }',
+				'  a { color: inherit; text-decoration: none; font-weight: 600; }',
+				'  a:hover { text-decoration: underline; }',
+				'  p { margin: 4px 0 0; opacity: .72; font-size: 13.5px; }',
+				'  .meta { margin-top: 6px; font-size: 12px; opacity: .55; }',
+				'  .empty { opacity: .6; font-size: 13.5px; }',
+				'</style>',
+				"<h1>{$site_name}</h1>",
+				'<div id="out"><p class="empty">Waiting for results…</p></div>',
+				'<script>',
+				'(function () {',
+				'  var out = document.getElementById(\'out\');',
+				'',
+				'  function esc(s) { return String(s == null ? \'\' : s).replace(/[&<>"]/g, function (c) {',
+				'    return ({ \'&\': \'&amp;\', \'<\': \'&lt;\', \'>\': \'&gt;\', \'"\': \'&quot;\' })[c];',
+				'  }); }',
+				'',
+				'  function render(items) {',
+				'    if (!items || !items.length) { out.innerHTML = \'<p class="empty">No results.</p>\'; return; }',
+				'    out.innerHTML = \'<ol>\' + items.map(function (r) {',
+				'      var url = esc(r.url || r.link || \'\');',
+				'      var name = esc(r.name || r.title || url);',
+				'      var desc = esc(r.description || r.excerpt || \'\');',
+				'      var meta = esc([r.type, r.date].filter(Boolean).join(\' · \'));',
+				'      return \'<li><a href="\' + url + \'" target="_blank" rel="noopener">\' + name + \'</a>\'',
+				'        + (desc ? \'<p>\' + desc + \'</p>\' : \'\')',
+				'        + (meta ? \'<div class="meta">\' + meta + \'</div>\' : \'\')',
+				'        + \'</li>\';',
+				'    }).join(\'\') + \'</ol>\';',
+				'  }',
+				'',
+				'  // Hosts disagree about how tool output reaches a UI resource, so try each known shape and take',
+				'  // whichever answers. None of these throws if the global is absent.',
+				'  function fromAny(payload) {',
+				'    if (!payload) return null;',
+				'    if (Array.isArray(payload)) return payload;',
+				'    return payload.results || payload.items || payload.structuredContent || null;',
+				'  }',
+				'',
+				'  try {',
+				'    if (window.openai && window.openai.toolOutput) {',
+				'      var direct = fromAny(window.openai.toolOutput);',
+				'      if (direct) { render(direct); return; }',
+				'    }',
+				'  } catch (e) {}',
+				'',
+				'  try {',
+				'    if (window.mcp && typeof window.mcp.getToolOutput === \'function\') {',
+				'      Promise.resolve(window.mcp.getToolOutput()).then(function (o) {',
+				'        var r = fromAny(o); if (r) render(r);',
+				'      }).catch(function () {});',
+				'    }',
+				'  } catch (e) {}',
+				'',
+				'  window.addEventListener(\'message\', function (event) {',
+				'    var data = event && event.data;',
+				'    if (!data) return;',
+				'    var r = fromAny(data.toolOutput || data.structuredContent || data);',
+				'    if (r) render(r);',
+				'  });',
+				'',
+				'  try { window.parent && window.parent.postMessage({ type: \'mcp-ui-ready\' }, \'*\'); } catch (e) {}',
+				'})();',
+				'</script>',
+			)
+		);
 	}
 
 	/**

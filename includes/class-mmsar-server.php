@@ -130,6 +130,7 @@ class MMSAR_Server {
 		header( 'X-Robots-Tag: noindex' );
 		MMSAR_Agent_Log::record( 'Markdown (.md URL)' );
 		header( 'Link: <' . esc_url( get_permalink( $post_id ) ) . '>; rel="canonical"' );
+		MMSAR_LLMs_Txt::send_link_header();
 		status_header( 200 );
 
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw markdown as text/markdown, not HTML.
@@ -154,6 +155,7 @@ class MMSAR_Server {
 		header( 'Content-Type: text/markdown; charset=UTF-8' );
 		header( 'X-Content-Type-Options: nosniff' );
 		header( 'X-Robots-Tag: noindex' );
+		MMSAR_LLMs_Txt::send_link_header();
 		status_header( 404 );
 
 		// The recovery links are the 404 feature's job, and it can be switched off. Fall back to the
@@ -270,6 +272,7 @@ class MMSAR_Server {
 		header( 'Content-Type: text/markdown; charset=UTF-8' );
 		header( 'X-Content-Type-Options: nosniff' );
 		header( 'Link: <' . esc_url( get_permalink( $post->ID ) ) . '>; rel="canonical"' );
+		MMSAR_LLMs_Txt::send_link_header();
 		status_header( 200 );
 
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw markdown as text/markdown, not HTML.

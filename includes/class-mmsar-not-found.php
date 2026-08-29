@@ -61,11 +61,17 @@ class MMSAR_Not_Found {
 		$destinations = array();
 
 		if ( mmsar_feature_enabled( 'llms_txt' ) ) {
+			// Scoped the same way the Link header on a live page is: the index covering the path
+			// that was asked for. On a 404 that is the more useful of the two, because the section
+			// an agent was already in is where the URL it wanted most likely lives.
+			$section        = MMSAR_LLMs_Txt::section_for_request();
 			$destinations[] = array(
-				'href'  => home_url( '/llms.txt' ),
+				'href'  => MMSAR_LLMs_Txt::url_for_request(),
 				'rel'   => 'describedby',
 				'type'  => 'text/plain',
-				'label' => 'An index of every page on this site, one line each. Start here.',
+				'label' => $section
+					? 'An index of the ' . strtolower( $section['label'] ) . ' on this site, one line each — the section the URL you asked for is under. Start here.'
+					: 'An index of every page on this site, one line each. Start here.',
 			);
 		}
 

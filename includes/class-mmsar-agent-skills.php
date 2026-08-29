@@ -137,26 +137,29 @@ class MMSAR_Agent_Skills {
 		// Endpoints other plugins registered that an agent can call, rather than just read.
 		$actions = MMSAR_Registry::skill_md_section();
 
-		return <<<MD
----
-name: {$skill_name}
-description: Use this when you want {$site_name}'s content as clean Markdown instead of parsing HTML — for summarizing a page, answering questions about the site, or indexing it. Covers the machine-readable endpoints this site exposes; no authentication required.
----
-
-# Fetching {$site_name}'s content as Markdown
-
-This site exposes its content in Markdown alongside every normal HTML page, generated automatically from the same source and updated whenever a post or page is saved.
-
-## Endpoints
-
-{$bullets}
-
-## Notes
-
-- These are plain GET requests, no authentication, served as `text/plain` or `text/markdown`.
-- Content reflects what's currently published — there's no separate draft/staging feed.{$notes_body}
-{$actions}
-MD;
+		return implode(
+			"\n",
+			array(
+				'---',
+				"name: {$skill_name}",
+				"description: Use this when you want {$site_name}'s content as clean Markdown instead of parsing HTML — for summarizing a page, answering questions about the site, or indexing it. Covers the machine-readable endpoints this site exposes; no authentication required.",
+				'---',
+				'',
+				"# Fetching {$site_name}'s content as Markdown",
+				'',
+				'This site exposes its content in Markdown alongside every normal HTML page, generated automatically from the same source and updated whenever a post or page is saved.',
+				'',
+				'## Endpoints',
+				'',
+				"{$bullets}",
+				'',
+				'## Notes',
+				'',
+				'- These are plain GET requests, no authentication, served as `text/plain` or `text/markdown`.',
+				"- Content reflects what's currently published — there's no separate draft/staging feed.{$notes_body}",
+				"{$actions}",
+			)
+		);
 	}
 
 	/**
