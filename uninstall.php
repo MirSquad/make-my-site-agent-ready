@@ -33,8 +33,8 @@ delete_transient( 'mmsar_negotiation_check_pending' );
 delete_transient( 'mmsar_negotiation_check_notice' );
 
 global $wpdb;
-// Uninstall cleanup: remove all cached markdown post meta. No caching applies to a one-time delete.
-$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_llmmd_content' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Removing this plugin's own cached markdown post meta on uninstall. No core API deletes meta by key across all posts, and caching is meaningless for a one-time delete.
+$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_llmmd_content' ) );
 
 // The agent log's own table.
 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Dropping this plugin's own table on uninstall.

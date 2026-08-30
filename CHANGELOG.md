@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.22.2 — 2026-08-30
+
+Reviewer-readability only. No behaviour changes, and no executable code changed — the single edit moves an existing `phpcs:ignore` onto its own line and gives it a reason.
+
+### Fixed
+- The `phpcs:ignore` covering the `_llmmd_content` post-meta cleanup in `uninstall.php` had no `--` justification, while the table-drop query directly below it did. A WordPress.org reviewer re-scans without honouring inline ignores, so an unexplained one reads as something being hidden. It now states why the direct query is correct there: no core API deletes meta by key across all posts, and caching is meaningless for a one-time uninstall delete.
+
 ## 1.22.1 — 2026-08-29
 
 WordPress.org Plugin Check compliance. No behaviour changes — every output this plugin serves is byte-identical to 1.22.0, which is verified rather than assumed: the Agent Skills SKILL.md and the MCP results panel were both captured before and after and hash to the same SHA-256, and the served SKILL.md still matches the digest the discovery index advertises.

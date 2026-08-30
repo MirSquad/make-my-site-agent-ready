@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.22.1
+Stable tag: 1.22.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,6 +112,9 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.22.2 - 2026-08-30 =
+* Fix: The `phpcs:ignore` on the post-meta cleanup query in `uninstall.php` now carries a written justification, matching the one on the table-drop query below it. A WordPress.org reviewer re-scans without honouring inline ignores, so a bare one reads as a hidden problem rather than a reviewed decision. No code changed — the query is the same.
 
 = 1.22.1 - 2026-08-29 =
 * Fix: Plugin Check now passes clean. The plugin declared `Domain Path: /languages` and called `load_plugin_textdomain()` against a directory that is empty and has never been in the distributed zip, so both described something that does not exist; WordPress has loaded plugin translations just in time since 4.6, well below this plugin's 6.2 minimum, so nothing is lost by removing them.
