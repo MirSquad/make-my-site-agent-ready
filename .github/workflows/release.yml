@@ -16,7 +16,7 @@ jobs:
     needs: audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build plugin zip
         run: |
@@ -26,7 +26,7 @@ jobs:
             > "make-my-site-agent-ready-${VERSION}.zip"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: make-my-site-agent-ready-*.zip
           generate_release_notes: true
