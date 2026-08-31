@@ -2,6 +2,12 @@
 
 All notable changes to Make My Site Agent-Ready.
 
+## 1.22.3 — 2026-08-31
+
+- Fix: Removed an unused dependency. `composer.json` required `yahnis-elsts/plugin-update-checker`, which the plugin never loaded and which was not present in `vendor/` — a leftover from an abandoned self-update experiment. Nothing in the shipped code referenced it.
+- Fix: The bundled Composer metadata identified the plugin by a stale package name inherited from the project it was originally derived from. Regenerated, so `vendor/composer/installed.php` now names this plugin.
+- Dev: Added `composer.lock`, so the bundled `vendor/` tree is reproducible. `league/html-to-markdown` stays at 5.1.1 — the Markdown converter is byte-for-byte unchanged.
+
 ## 1.22.2 — 2026-08-30
 
 - Added a written justification to a `phpcs:ignore` in `uninstall.php`. No behaviour change.

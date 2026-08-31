@@ -5,8 +5,7 @@
 	"license": "GPL-2.0-or-later",
 	"require": {
 		"php": ">=7.4",
-		"league/html-to-markdown": "^5.1",
-		"yahnis-elsts/plugin-update-checker": "^5.6"
+		"league/html-to-markdown": "^5.1"
 	},
 	"config": {
 		"optimize-autoloader": true

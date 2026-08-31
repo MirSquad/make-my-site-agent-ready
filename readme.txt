@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.22.2
+Stable tag: 1.22.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,6 +112,11 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.22.3 - 2026-08-31 =
+* Fix: Removed an unused dependency. `composer.json` required `yahnis-elsts/plugin-update-checker`, which the plugin never loaded and which was not present in `vendor/` — a leftover from an abandoned self-update experiment. Nothing in the shipped code referenced it.
+* Fix: The bundled Composer metadata identified the plugin by a stale package name inherited from the project it was originally derived from. Regenerated, so `vendor/composer/installed.php` now names this plugin.
+* Dev: Added `composer.lock`, so the bundled `vendor/` tree is reproducible. `league/html-to-markdown` stays at 5.1.1 — the Markdown converter is byte-for-byte unchanged.
 
 = 1.22.2 - 2026-08-30 =
 * Fix: The `phpcs:ignore` on the post-meta cleanup query in `uninstall.php` now carries a written justification, matching the one on the table-drop query below it. A WordPress.org reviewer re-scans without honouring inline ignores, so a bare one reads as a hidden problem rather than a reviewed decision. No code changed — the query is the same.

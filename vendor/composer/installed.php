@@ -1,24 +1,15 @@
 <?php return array(
     'root' => array(
-        'name' => 'joost/markdown-alternate',
+        'name' => 'miriamschwab/make-my-site-agent-ready',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => 'c71c82c2e7f217f38f2a25ff39c35707cc0d9704',
+        'reference' => '15faabf9aef473fa30f3da3446bd905e0404ba0d',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
-        'dev' => true,
+        'dev' => false,
     ),
     'versions' => array(
-        'joost/markdown-alternate' => array(
-            'pretty_version' => 'dev-main',
-            'version' => 'dev-main',
-            'reference' => 'c71c82c2e7f217f38f2a25ff39c35707cc0d9704',
-            'type' => 'wordpress-plugin',
-            'install_path' => __DIR__ . '/../../',
-            'aliases' => array(),
-            'dev_requirement' => false,
-        ),
         'league/html-to-markdown' => array(
             'pretty_version' => '5.1.1',
             'version' => '5.1.1.0',
@@ -28,12 +19,12 @@
             'aliases' => array(),
             'dev_requirement' => false,
         ),
-        'yahnis-elsts/plugin-update-checker' => array(
-            'pretty_version' => 'v5.6',
-            'version' => '5.6.0.0',
-            'reference' => 'a2db6871deec989a74e1f90fafc6d58ae526a879',
-            'type' => 'library',
-            'install_path' => __DIR__ . '/../yahnis-elsts/plugin-update-checker',
+        'miriamschwab/make-my-site-agent-ready' => array(
+            'pretty_version' => 'dev-main',
+            'version' => 'dev-main',
+            'reference' => '15faabf9aef473fa30f3da3446bd905e0404ba0d',
+            'type' => 'wordpress-plugin',
+            'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
             'dev_requirement' => false,
         ),
