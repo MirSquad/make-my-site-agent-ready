@@ -1,5 +1,5 @@
 {
-	"name": "mirsquad/make-my-site-agent-ready",
+	"name": "miriamschwab/make-my-site-agent-ready",
 	"description": "Makes a WordPress site readable and usable by AI agents: markdown URLs, llms.txt, an OpenAPI spec, a read-only MCP server, and agent-recoverable 404s.",
 	"type": "wordpress-plugin",
 	"license": "GPL-2.0-or-later",

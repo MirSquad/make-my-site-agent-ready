@@ -141,7 +141,7 @@ Use the `mmsar_registered_endpoints` filter for the same thing without a direct 
 * Change: Internal code quality. The overview builder was one long function with four conditionals wrapped around unindented blocks; it is now four small methods, one per section. Also removed a dead method and a redundant array_values() call left behind by the 1.21.1 rewrite of the ARD catalog. No behavior change from any of these.
 
 Older releases are listed in CHANGELOG.md in the plugin's GitHub repository:
-https://github.com/MirSquad/make-my-site-agent-ready/blob/main/CHANGELOG.md
+https://github.com/miriamschwab/make-my-site-agent-ready/blob/main/CHANGELOG.md
 
 == Upgrade Notice ==
 
