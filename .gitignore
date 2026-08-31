@@ -3,6 +3,7 @@
 *.zip
 analysis/
 decisions-log.md
+make-my-site-agent-ready-changelog.md
 handoff.md
 handoff-history.md
 project-context.md
