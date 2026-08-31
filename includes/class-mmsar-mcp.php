@@ -126,6 +126,11 @@ class MMSAR_MCP {
 	public static function handle( WP_REST_Request $request ) {
 		$rate = self::consume_rate_limit();
 		if ( ! $rate['allowed'] ) {
+			// Recorded, because a client being turned away is the one MCP event that leaves no
+			// other trace: it never reaches dispatch(), so without this a caller hammering the
+			// endpoint hard enough to be refused looks identical to a caller that never came.
+			MMSAR_Agent_Log::record( 'MCP JSON-RPC', 'rate limited', true );
+
 			// -32000 is in the JSON-RPC implementation-defined server error range. The HTTP status
 			// matters too: a client that understands 429 can back off without parsing the body.
 			return self::with_rate_limit_headers(
@@ -136,6 +141,11 @@ class MMSAR_MCP {
 
 		$body = $request->get_json_params();
 		if ( ! is_array( $body ) ) {
+			// Reached when the body is valid JSON of the wrong shape — a bare string or number
+			// where an object belongs. A body that is not valid JSON at all never gets here: the
+			// REST server rejects it with rest_invalid_json before any route callback runs, so
+			// that case is outside what this endpoint can see, let alone record.
+			MMSAR_Agent_Log::record( 'MCP JSON-RPC', 'parse error', true );
 			return self::error_response( null, -32700, 'Parse error: request body is not valid JSON.', 400 );
 		}
 
@@ -201,6 +211,8 @@ class MMSAR_MCP {
 	 * @return WP_REST_Response Response.
 	 */
 	public static function decline_stream() {
+		MMSAR_Agent_Log::record( 'MCP GET (declined)' );
+
 		// Carries the rate-limit headers even though it refuses the request. A client — or a scanner
 		// — that only ever issues a GET against this URL would otherwise never see the policy, and
 		// the policy applies to it just the same.
@@ -251,6 +263,13 @@ class MMSAR_MCP {
 		$id              = array_key_exists( 'id', $message ) ? $message['id'] : null;
 		$is_notification = ! array_key_exists( 'id', $message );
 
+		// Logged here rather than in handle(), because handle() sees one HTTP request while this
+		// sees one JSON-RPC message, and a batch is several messages in one request. Logged before
+		// the switch so an unknown method is recorded too — a client asking for something this
+		// server does not implement is worth knowing about, and it is the case least likely to be
+		// reported any other way.
+		MMSAR_Agent_Log::record( 'MCP JSON-RPC', self::log_detail( $method, $params ), true );
+
 		switch ( $method ) {
 			case 'initialize':
 				$result = self::initialize( $params );
@@ -294,6 +313,39 @@ class MMSAR_MCP {
 			'id'      => $id,
 			'result'  => $result,
 		);
+	}
+
+	/**
+	 * The log detail for one JSON-RPC message.
+	 *
+	 * The method alone answers most of the question, except for the method that matters most:
+	 * every actual use of this server arrives as tools/call, so a log of bare method names would
+	 * show that the tools were used and never which ones. The tool name is appended for that case,
+	 * and only that case.
+	 *
+	 * Both halves come from the request body, so both are bounded before being stored: the method
+	 * is trimmed to a length that fits any real one, and the tool name is only used when it matches
+	 * a tool actually registered here — an unknown name is discarded rather than written through.
+	 *
+	 * @param string $method The JSON-RPC method.
+	 * @param array  $params The message params.
+	 * @return string Detail string for the log.
+	 */
+	private static function log_detail( $method, $params ) {
+		$method = mb_substr( '' === $method ? '(none)' : $method, 0, 60 );
+
+		if ( 'tools/call' !== $method || ! isset( $params['name'] ) || ! is_string( $params['name'] ) ) {
+			return $method;
+		}
+
+		$name = $params['name'];
+		foreach ( self::tools() as $tool ) {
+			if ( isset( $tool['name'] ) && $tool['name'] === $name ) {
+				return $method . ': ' . mb_substr( $name, 0, 120 );
+			}
+		}
+
+		return $method . ': (unknown tool)';
 	}
 
 	/**

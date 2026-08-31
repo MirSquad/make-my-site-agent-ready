@@ -25,7 +25,7 @@ class MMSAR_Agent_Log {
 	/**
 	 * Schema version. Bump to trigger dbDelta on the next load.
 	 */
-	const DB_VERSION = 1;
+	const DB_VERSION = 2;
 
 	/**
 	 * Option holding the installed schema version.
@@ -143,6 +143,7 @@ class MMSAR_Agent_Log {
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			logged_at datetime NOT NULL,
 			surface varchar(100) NOT NULL DEFAULT '',
+			detail varchar(190) NOT NULL DEFAULT '',
 			agent varchar(120) NOT NULL DEFAULT '',
 			ip varchar(45) NOT NULL DEFAULT '',
 			PRIMARY KEY  (id),
@@ -235,7 +236,7 @@ class MMSAR_Agent_Log {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would show a stale log.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				'SELECT logged_at, surface, agent, ip FROM %i ORDER BY id DESC LIMIT %d OFFSET %d',
+				'SELECT logged_at, surface, detail, agent, ip FROM %i ORDER BY id DESC LIMIT %d OFFSET %d',
 				self::table(),
 				absint( $per_page ),
 				absint( $offset )
@@ -267,7 +268,7 @@ class MMSAR_Agent_Log {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would show a stale log.
 			$rows = $wpdb->get_results(
 				$wpdb->prepare(
-					'SELECT id, logged_at, surface, agent, ip FROM %i WHERE id < %d ORDER BY id DESC LIMIT %d',
+					'SELECT id, logged_at, surface, detail, agent, ip FROM %i WHERE id < %d ORDER BY id DESC LIMIT %d',
 					self::table(),
 					$before_id,
 					$limit
@@ -278,7 +279,7 @@ class MMSAR_Agent_Log {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
 			$rows = $wpdb->get_results(
 				$wpdb->prepare(
-					'SELECT id, logged_at, surface, agent, ip FROM %i ORDER BY id DESC LIMIT %d',
+					'SELECT id, logged_at, surface, detail, agent, ip FROM %i ORDER BY id DESC LIMIT %d',
 					self::table(),
 					$limit
 				),
@@ -299,7 +300,7 @@ class MMSAR_Agent_Log {
 	 *
 	 * Datetimes are UTC, as stored.
 	 *
-	 * @param int $top  Maximum rows in the by-agent and by-surface breakdowns.
+	 * @param int $top  Maximum rows in the by-agent, by-surface and by-detail breakdowns.
 	 * @param int $days Maximum rows in the by-day breakdown, most recent first.
 	 * @return array Aggregates.
 	 */
@@ -338,6 +339,20 @@ class MMSAR_Agent_Log {
 			ARRAY_A
 		);
 
+		// Only rows that carry a detail, because on every other surface the surface name already is
+		// the whole request and a blank row here would say nothing. Grouped by the pair rather than
+		// by detail alone: "/api/v2/products" means one thing under a 404 and another under an MCP
+		// call, and merging them would invent a total that describes neither.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
+		$by_detail = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT surface, detail, COUNT(*) AS requests, COUNT(DISTINCT agent) AS agents, MIN(logged_at) AS first_seen, MAX(logged_at) AS last_seen FROM %i WHERE detail <> '' GROUP BY surface, detail ORDER BY requests DESC, detail ASC LIMIT %d",
+				$table,
+				$top
+			),
+			ARRAY_A
+		);
+
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
 		$by_day = $wpdb->get_results(
 			$wpdb->prepare(
@@ -356,6 +371,7 @@ class MMSAR_Agent_Log {
 			'last_logged_at'  => isset( $totals['last_logged_at'] ) ? (string) $totals['last_logged_at'] : '',
 			'by_agent'        => self::int_columns( $by_agent, array( 'requests', 'surfaces', 'unique_ips' ) ),
 			'by_surface'      => self::int_columns( $by_surface, array( 'requests', 'agents' ) ),
+			'by_detail'       => self::int_columns( $by_detail, array( 'requests', 'agents' ) ),
 			'by_day'          => self::int_columns( $by_day, array( 'requests', 'agents' ) ),
 		);
 	}
@@ -429,20 +445,36 @@ class MMSAR_Agent_Log {
 	 * for llms.txt or a .md URL is agent traffic whatever it calls itself, and filtering on
 	 * user-agent would hide exactly the clients worth knowing about.
 	 *
-	 * @param string $surface Human-readable name of what was served, e.g. 'llms.txt'.
+	 * @param string $surface             Human-readable name of what was served, e.g. 'llms.txt'.
+	 * @param string $detail              What exactly was asked for within that surface — the
+	 *                                    requested path on a 404, the method on an MCP call.
+	 *                                    Empty for surfaces where the name is the whole answer.
+	 * @param bool   $throttle_on_detail  Whether two requests differing only in $detail are two
+	 *                                    entries rather than one. See below.
 	 * @return void
 	 */
-	public static function record( $surface ) {
+	public static function record( $surface, $detail = '', $throttle_on_detail = false ) {
 		if ( ! self::is_active() ) {
 			return;
 		}
 
-		$agent = self::agent_label();
-		$ip    = self::client_ip();
+		$agent  = self::agent_label();
+		$ip     = self::client_ip();
+		$detail = (string) $detail;
 
 		// Throttle before touching the database. Only reached by requests already known to be
 		// agent-facing, so this never runs on an ordinary page view.
-		$key = 'mmsar_al_' . md5( $agent . '|' . $surface . '|' . $ip );
+		//
+		// Whether $detail belongs in this key is the whole difference between the two callers, and
+		// it is a judgement about who supplies the value. An MCP method name comes from a closed
+		// set behind a rate limiter, so keying on it is safe and necessary: initialize, tools/list
+		// and tools/call inside one session are three facts, and collapsing them to one would lose
+		// the only thing anybody wants to know about that endpoint. A 404 path is supplied by the
+		// caller and unbounded, so keying on it would let anything walking a URL list write a row
+		// per request. There the row was going to be written anyway and the path is an annotation
+		// on it, which samples the pattern over days without handing a fuzzer a write primitive.
+		$throttle_detail = $throttle_on_detail ? $detail : '';
+		$key             = 'mmsar_al_' . md5( $agent . '|' . $surface . '|' . $throttle_detail . '|' . $ip );
 		if ( get_transient( $key ) ) {
 			return;
 		}
@@ -455,10 +487,11 @@ class MMSAR_Agent_Log {
 			array(
 				'logged_at' => current_time( 'mysql', true ),
 				'surface'   => mb_substr( $surface, 0, 100 ),
+				'detail'    => mb_substr( $detail, 0, 190 ),
 				'agent'     => mb_substr( $agent, 0, 120 ),
 				'ip'        => $ip,
 			),
-			array( '%s', '%s', '%s', '%s' )
+			array( '%s', '%s', '%s', '%s', '%s' )
 		);
 
 		// Prune every so often rather than on every insert: an append is the cost this request
@@ -467,7 +500,7 @@ class MMSAR_Agent_Log {
 			self::prune();
 		}
 
-		self::mirror_to_activity_log( $surface, $agent, $ip );
+		self::mirror_to_activity_log( '' === $detail ? $surface : $surface . ' — ' . $detail, $agent, $ip );
 	}
 
 	/**

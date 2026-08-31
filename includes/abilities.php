@@ -471,7 +471,7 @@ function mmsar_register_abilities() {
 		'make-my-site-agent-ready/get-agent-log',
 		array(
 			'label'               => __( 'Get Agent Log', 'make-my-site-agent-ready' ),
-			'description'         => __( 'Read the agent request log: which agents fetched which of this site\'s agent-facing surfaces, and when. Returns aggregate counts by agent, by surface and by day over the whole log, plus one page of individual entries. All datetimes are UTC. Ask for summary_only when the shape of the traffic is the question, which is most of the time — the aggregates cover every entry, while entries only ever cover the page requested.', 'make-my-site-agent-ready' ),
+			'description'         => __( 'Read the agent request log: which agents fetched which of this site\'s agent-facing surfaces, and when. Returns aggregate counts by agent, by surface, by requested detail and by day over the whole log, plus one page of individual entries. All datetimes are UTC. Ask for summary_only when the shape of the traffic is the question, which is most of the time — the aggregates cover every entry, while entries only ever cover the page requested.', 'make-my-site-agent-ready' ),
 			'category'            => 'make-my-site-agent-ready',
 			'input_schema'        => array(
 				'type'       => 'object',
@@ -555,6 +555,21 @@ function mmsar_register_abilities() {
 							),
 						),
 					),
+					'by_detail'           => array(
+						'type'        => 'array',
+						'description' => 'What was asked for within a surface, busiest first, for the surfaces that record it. Two surfaces do: "404 (JSON)" and "404 (markdown)" carry the path an agent asked for and did not find, and "MCP JSON-RPC" carries the method called — "initialize", "tools/list", "tools/call: <tool name>". This is the breakdown that answers whether the MCP server is actually being used rather than merely discovered, and whether agents are guessing at URLs the site could support. Surfaces whose name is already the whole request are absent.',
+						'items'       => array(
+							'type'       => 'object',
+							'properties' => array(
+								'surface'    => array( 'type' => 'string' ),
+								'detail'     => array( 'type' => 'string' ),
+								'requests'   => array( 'type' => 'integer' ),
+								'agents'     => array( 'type' => 'integer' ),
+								'first_seen' => array( 'type' => 'string' ),
+								'last_seen'  => array( 'type' => 'string' ),
+							),
+						),
+					),
 					'by_day'              => array(
 						'type'        => 'array',
 						'description' => 'Most recent UTC day first.',
@@ -576,6 +591,10 @@ function mmsar_register_abilities() {
 								'logged_at' => array( 'type' => 'string' ),
 								'agent'     => array( 'type' => 'string' ),
 								'surface'   => array( 'type' => 'string' ),
+								'detail'    => array(
+									'type'        => 'string',
+									'description' => 'What was asked for within the surface — a 404 path, or an MCP method. Empty string on surfaces where the surface name is the whole request.',
+								),
 								'ip'        => array( 'type' => 'string' ),
 							),
 						),
@@ -610,6 +629,7 @@ function mmsar_register_abilities() {
 					'last_logged_at'      => $summary['last_logged_at'],
 					'by_agent'            => $summary['by_agent'],
 					'by_surface'          => $summary['by_surface'],
+					'by_detail'           => $summary['by_detail'],
 					'by_day'              => $summary['by_day'],
 				);
 

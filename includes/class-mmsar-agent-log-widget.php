@@ -92,7 +92,12 @@ class MMSAR_Agent_Log_Widget {
 			echo '<tr style="border-bottom:1px solid #f0f0f1;">';
 			echo '<td style="padding:6px 8px 6px 0;vertical-align:top;">';
 			echo '<strong>' . esc_html( isset( $entry['agent'] ) ? $entry['agent'] : '—' ) . '</strong>';
-			echo '<br><span style="color:#646970;">' . esc_html( isset( $entry['surface'] ) ? $entry['surface'] : '' ) . '</span>';
+			$surface = isset( $entry['surface'] ) ? (string) $entry['surface'] : '';
+			$detail  = isset( $entry['detail'] ) ? (string) $entry['detail'] : '';
+			if ( '' !== $detail ) {
+				$surface .= ' — ' . $detail;
+			}
+			echo '<br><span style="color:#646970;">' . esc_html( $surface ) . '</span>';
 			echo '</td>';
 			echo '<td style="padding:6px 0;vertical-align:top;text-align:right;white-space:nowrap;color:#646970;">';
 			echo esc_html( $when );

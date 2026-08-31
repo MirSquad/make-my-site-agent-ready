@@ -564,7 +564,7 @@ class MMSAR_Admin {
 		echo '</p>';
 
 		echo '<p class="description">';
-		esc_html_e( 'The same agent, file and IP is recorded at most once every five minutes, so a crawler looping on one URL cannot flood the log. Nothing is recorded on an ordinary page view unless the option below is ticked.', 'make-my-site-agent-ready' );
+		esc_html_e( 'The same agent, file and IP is recorded at most once every five minutes, so a crawler looping on one URL cannot flood the log. Nothing is recorded on an ordinary page view unless the option below is ticked. Two kinds of request carry a detail alongside the file: a 404 records the path the agent asked for, and an MCP call records the method it invoked — including which tool, so the log shows whether the MCP server is being used or only discovered.', 'make-my-site-agent-ready' );
 		echo '</p>';
 	}
 

@@ -129,7 +129,7 @@ class MMSAR_Agent_Log_Page {
 		// on the timestamp is not decoration — the rows are stored in UTC while the screen renders
 		// them in the site's timezone, and a bare "logged_at" would leave a reader comparing an
 		// exported row against the screen with no way to tell which one they were holding.
-		fputcsv( $handle, array( 'logged_at_utc', 'agent', 'surface', 'ip' ) );
+		fputcsv( $handle, array( 'logged_at_utc', 'agent', 'surface', 'detail', 'ip' ) );
 
 		$cursor = 0;
 		do {
@@ -142,6 +142,7 @@ class MMSAR_Agent_Log_Page {
 						self::csv_cell( isset( $row['logged_at'] ) ? $row['logged_at'] : '' ),
 						self::csv_cell( isset( $row['agent'] ) ? $row['agent'] : '' ),
 						self::csv_cell( isset( $row['surface'] ) ? $row['surface'] : '' ),
+						self::csv_cell( isset( $row['detail'] ) ? $row['detail'] : '' ),
 						self::csv_cell( isset( $row['ip'] ) ? $row['ip'] : '' ),
 					)
 				);
@@ -247,6 +248,7 @@ class MMSAR_Agent_Log_Page {
 		echo '<th>' . esc_html__( 'When', 'make-my-site-agent-ready' ) . '</th>';
 		echo '<th>' . esc_html__( 'Agent', 'make-my-site-agent-ready' ) . '</th>';
 		echo '<th>' . esc_html__( 'Requested', 'make-my-site-agent-ready' ) . '</th>';
+		echo '<th>' . esc_html__( 'Details', 'make-my-site-agent-ready' ) . '</th>';
 		echo '<th>' . esc_html__( 'IP', 'make-my-site-agent-ready' ) . '</th>';
 		echo '</tr></thead><tbody>';
 
@@ -257,6 +259,8 @@ class MMSAR_Agent_Log_Page {
 			echo '<td>' . esc_html( $stamp ? wp_date( 'Y-m-d H:i', $stamp ) : '—' ) . '</td>';
 			echo '<td>' . esc_html( isset( $entry['agent'] ) ? $entry['agent'] : '—' ) . '</td>';
 			echo '<td>' . esc_html( isset( $entry['surface'] ) ? $entry['surface'] : '—' ) . '</td>';
+			$detail = isset( $entry['detail'] ) ? (string) $entry['detail'] : '';
+			echo '<td>' . ( '' === $detail ? '<span style="color:#8c8f94;">—</span>' : '<code>' . esc_html( $detail ) . '</code>' ) . '</td>';
 			echo '<td><code>' . esc_html( isset( $entry['ip'] ) ? $entry['ip'] : '' ) . '</code></td>';
 			echo '</tr>';
 		}
