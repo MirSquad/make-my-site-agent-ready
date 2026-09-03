@@ -74,6 +74,23 @@ class MMSAR_Agent_Log_Widget {
 			return;
 		}
 
+		// On any site running this, a non-zero forged count is the headline finding — it is the one
+		// thing here that changes how every other number on the screen should be read. Shown before
+		// the entries rather than as a column on them, because it is a fact about the whole log.
+		$verification = MMSAR_Agent_Log::get_verification_summary();
+		$failed       = isset( $verification['counts'][ MMSAR_Agent_Log_Verify::FAILED ] )
+			? (int) $verification['counts'][ MMSAR_Agent_Log_Verify::FAILED ]
+			: 0;
+		if ( $failed > 0 ) {
+			echo '<p style="margin:0 0 8px;padding:6px 8px;background:#fce8e6;border-left:3px solid #d63638;">';
+			printf(
+				/* translators: %s: number of entries */
+				esc_html( _n( '%s entry forged an AI crawler identity.', '%s entries forged an AI crawler identity.', $failed, 'make-my-site-agent-ready' ) ),
+				'<strong>' . esc_html( number_format_i18n( $failed ) ) . '</strong>'
+			);
+			echo '</p>';
+		}
+
 		echo '<table style="width:100%;border-collapse:collapse;">';
 		echo '<tbody>';
 
@@ -96,6 +113,9 @@ class MMSAR_Agent_Log_Widget {
 			$detail  = isset( $entry['detail'] ) ? (string) $entry['detail'] : '';
 			if ( '' !== $detail ) {
 				$surface .= ' — ' . $detail;
+			}
+			if ( isset( $entry['verified'] ) && MMSAR_Agent_Log_Verify::FAILED === $entry['verified'] ) {
+				echo ' <span style="color:#8a1c11;font-size:11px;">' . esc_html__( '(spoofed)', 'make-my-site-agent-ready' ) . '</span>';
 			}
 			echo '<br><span style="color:#646970;">' . esc_html( $surface ) . '</span>';
 			echo '</td>';

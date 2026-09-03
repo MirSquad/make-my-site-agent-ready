@@ -169,30 +169,14 @@ class MMSAR_Not_Found {
 	 * the site could support looks exactly like a crawler failing at random until the paths are
 	 * visible side by side.
 	 *
-	 * The query string is dropped. It is rarely the interesting half of a guessed URL, and leaving
-	 * it out keeps arbitrary caller-supplied text — tracking parameters, injection attempts, junk
-	 * from a scanner — out of a table an administrator reads and exports.
+	 * The sanitising moved to MMSAR_Agent_Log::request_path() in 1.24.0, when the markdown surfaces
+	 * started recording a path too: both write caller-influenced text into the same column, so they
+	 * are bounded by the same code rather than by two copies of it that can drift.
 	 *
 	 * @return string Leading-slash path, or '/' when there is nothing to report.
 	 */
 	private static function requested_path() {
-		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
-		if ( '' === $request_uri ) {
-			return '/';
-		}
-
-		$path = (string) wp_parse_url( $request_uri, PHP_URL_PATH );
-		if ( '' === $path ) {
-			return '/';
-		}
-
-		// Percent-decoded so the stored value is the path as the caller meant it, then stripped of
-		// anything that is not printable ASCII — a decoded path can carry control characters, and
-		// this string is written to a CSV export and an admin table.
-		$path = rawurldecode( $path );
-		$path = preg_replace( '/[^\x20-\x7E]/', '', $path );
-
-		return '' === $path ? '/' : '/' . ltrim( $path, '/' );
+		return MMSAR_Agent_Log::request_path();
 	}
 
 	/**

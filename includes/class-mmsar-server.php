@@ -128,7 +128,13 @@ class MMSAR_Server {
 		header( 'Content-Type: text/markdown; charset=UTF-8' );
 		header( 'X-Content-Type-Options: nosniff' );
 		header( 'X-Robots-Tag: noindex' );
-		MMSAR_Agent_Log::record( 'Markdown (.md URL)' );
+		// The resolved permalink path, not REQUEST_URI. Every alias that reached this post — the
+		// `.md` suffix, content negotiation on the canonical URL, a trailing-slash variant — now
+		// records one identical value, so a sweep shows up as one row per post rather than one row
+		// per spelling. It is also drawn from the site's own published content rather than from the
+		// caller, which is what makes it safe to key the throttle on; see record()'s docblock for
+		// why a 404 path is not.
+		MMSAR_Agent_Log::record( 'Markdown (.md URL)', MMSAR_Agent_Log::request_path( get_permalink( $post_id ) ), true );
 		header( 'Link: <' . esc_url( get_permalink( $post_id ) ) . '>; rel="canonical"' );
 		MMSAR_LLMs_Txt::send_link_header();
 		status_header( 200 );
@@ -155,6 +161,13 @@ class MMSAR_Server {
 		header( 'Content-Type: text/markdown; charset=UTF-8' );
 		header( 'X-Content-Type-Options: nosniff' );
 		header( 'X-Robots-Tag: noindex' );
+		// A missing `.md` URL was recorded nowhere at all until 1.24.0. 1.23.0 added path logging to
+		// both branches of MMSAR_Not_Found, but this is a third branch: a `.md` request that
+		// resolves to no published post exits here, before the general 404 handler ever runs. So the
+		// one 404 an agent is most likely to generate against this plugin — guessing at a `.md`
+		// address — was the one it could not see. The path is caller-supplied, so it is not part of
+		// the throttle key, exactly as the other two 404 surfaces do it.
+		MMSAR_Agent_Log::record( '404 (markdown)', MMSAR_Agent_Log::request_path() );
 		MMSAR_LLMs_Txt::send_link_header();
 		status_header( 404 );
 
@@ -259,7 +272,7 @@ class MMSAR_Server {
 		// The self-check's own requests are traffic this site made to itself. Recording them would
 		// put a row in the owner's log for every check they run, attributed to their own server.
 		if ( ! self::is_self_check_request() ) {
-			MMSAR_Agent_Log::record( 'Markdown (content negotiation)' );
+			MMSAR_Agent_Log::record( 'Markdown (content negotiation)', MMSAR_Agent_Log::request_path( get_permalink( $post->ID ) ), true );
 		}
 
 		// Ask that no shared cache store this representation. `Vary: Accept` is advisory, and a

@@ -471,7 +471,7 @@ function mmsar_register_abilities() {
 		'make-my-site-agent-ready/get-agent-log',
 		array(
 			'label'               => __( 'Get Agent Log', 'make-my-site-agent-ready' ),
-			'description'         => __( 'Read the agent request log: which agents fetched which of this site\'s agent-facing surfaces, and when. Returns aggregate counts by agent, by surface, by requested detail and by day over the whole log, plus one page of individual entries. All datetimes are UTC. Ask for summary_only when the shape of the traffic is the question, which is most of the time — the aggregates cover every entry, while entries only ever cover the page requested.', 'make-my-site-agent-ready' ),
+			'description'         => __( 'Read the agent request log: which agents fetched which of this site\'s agent-facing surfaces, when, and whether the crawler identity each one claimed is genuine. Returns aggregate counts by agent, by surface, by requested detail and by day over the whole log, plus a verification breakdown and one page of individual entries. All datetimes are UTC. Ask for summary_only when the shape of the traffic is the question, which is most of the time — the aggregates cover every entry, while entries only ever cover the page requested. Read the verification block before quoting any per-agent number: the agent column is self-declared, forging it is common, and an unverified count is a claim rather than a measurement.', 'make-my-site-agent-ready' ),
 			'category'            => 'make-my-site-agent-ready',
 			'input_schema'        => array(
 				'type'       => 'object',
@@ -493,6 +493,12 @@ function mmsar_register_abilities() {
 						'type'        => 'boolean',
 						'default'     => false,
 						'description' => 'Return the aggregates and omit individual entries. The aggregates carry no IP addresses, so this is also the way to read the log without handling them.',
+					),
+					'verified'     => array(
+						'type'        => 'string',
+						'enum'        => array( '', 'verified', 'failed', 'unverifiable', 'unclaimed', 'nodns', 'pending' ),
+						'default'     => '',
+						'description' => 'Restrict the returned entries to one verification verdict. Empty string means no filter; use "pending" for entries not yet checked. Applies to entries only — the aggregates always cover the whole log. Asking for "failed" is the direct way to list the requests that forged a crawler identity.',
 					),
 				),
 			),
@@ -526,18 +532,66 @@ function mmsar_register_abilities() {
 						'type'        => 'integer',
 						'description' => 'The same agent, surface and IP is recorded at most once per this many seconds. Counts are therefore a lower bound on requests and should be read as reach, not volume.',
 					),
+					'verification'        => array(
+						'type'        => 'object',
+						'description' => 'Whether the crawler identity each entry claimed is genuine, counted over the whole log. The agent column is a self-declared user-agent string and forging it is common rather than exotic: on the site this feature was built for, three separate addresses each rotated through five or more AI-crawler identities within seconds, and every 404 attributed to GPTBot came from an address OpenAI does not publish. Read this block before quoting any per-agent figure.',
+						'properties'  => array(
+							'verified'        => array(
+								'type'        => 'integer',
+								'description' => 'Entries that claimed a known crawler and proved it: either the address falls inside the range the operator publishes, or reverse DNS forward-confirms to a hostname under a domain that operator owns.',
+							),
+							'failed'          => array(
+								'type'        => 'integer',
+								'description' => 'Entries that claimed a known crawler and are not it. **This is the spoofing count.** The user-agent named an operator, and the address neither appears in that operator\'s published ranges nor reverse-resolves into its domain. Any per-agent number that includes these rows is inflated by them.',
+							),
+							'unverifiable'    => array(
+								'type'        => 'integer',
+								'description' => 'Entries that claimed a crawler whose operator publishes no verification method this release knows about. **Not an accusation of anything** — it records that the plugin cannot check, not that the caller lied. Do not read it as a softer "failed".',
+							),
+							'unclaimed'       => array(
+								'type'        => 'integer',
+								'description' => 'Entries whose user-agent names no known crawler, so there was no claim to check and no lookup was made. Most unbranded traffic lands here, including ordinary browsers and any client using a generic user-agent. It says nothing either way about who they were.',
+							),
+							'nodns'           => array(
+								'type'        => 'integer',
+								'description' => 'Entries where the resolver returned nothing usable, for a crawler verified by reverse DNS. Retryable, unlike the other verdicts — a later pass re-checks these rather than leaving them decided.',
+							),
+							'pending'         => array(
+								'type'        => 'integer',
+								'description' => 'Entries not yet checked. **Above zero means every count in this block is provisional and covers only the checked part of the log**, so a low "failed" figure may mean nothing was found or may mean nothing has been looked at. Verification runs in small batches when an administrator opens the Agent Log screen or calls this ability, and in a large batch from the "Verify now" button on that screen; it deliberately never runs while a page is being served to a visitor.',
+							),
+							'ranges_captured' => array(
+								'type'        => 'string',
+								'description' => 'The date the bundled published-IP-range data was captured, "Y-m-d". Anthropic, OpenAI and Perplexity publish no reverse-DNS records for their crawlers, so those operators are checked against the ranges they publish, shipped with the plugin rather than fetched. A genuine crawler arriving from a range added after this date reads as "failed" until the plugin is updated — so weigh a failed verdict against these three operators by how old this date is.',
+							),
+							'first_checked'   => array(
+								'type'        => 'string',
+								'description' => 'UTC datetime of the earliest verdict reached, "Y-m-d H:i:s".',
+							),
+							'last_checked'    => array(
+								'type'        => 'string',
+								'description' => 'UTC datetime of the most recent verdict reached, "Y-m-d H:i:s".',
+							),
+						),
+					),
 					'by_agent'            => array(
 						'type'        => 'array',
-						'description' => 'Busiest agents first. An agent is the matched crawler name where recognized, otherwise the raw user-agent string, truncated.',
+						'description' => 'Busiest agents first. An agent is the matched crawler name where recognized, otherwise the raw user-agent string, truncated. Each row carries its own verdict counts, which is what makes a forged identity visible without cross-tabbing by hand: a row whose "failed" is close to its "requests" is a name being worn by something else, and its request total should not be attributed to the operator it names.',
 						'items'       => array(
 							'type'       => 'object',
 							'properties' => array(
-								'agent'      => array( 'type' => 'string' ),
-								'requests'   => array( 'type' => 'integer' ),
-								'surfaces'   => array( 'type' => 'integer' ),
-								'unique_ips' => array( 'type' => 'integer' ),
-								'first_seen' => array( 'type' => 'string' ),
-								'last_seen'  => array( 'type' => 'string' ),
+								'agent'        => array( 'type' => 'string' ),
+								'requests'     => array( 'type' => 'integer' ),
+								'surfaces'     => array( 'type' => 'integer' ),
+								'unique_ips'   => array( 'type' => 'integer' ),
+								'verified'     => array( 'type' => 'integer' ),
+								'failed'       => array( 'type' => 'integer' ),
+								'unverifiable' => array( 'type' => 'integer' ),
+								'unclaimed'    => array( 'type' => 'integer' ),
+								'nodns'        => array( 'type' => 'integer' ),
+								'pending'      => array( 'type' => 'integer' ),
+								'first_seen'   => array( 'type' => 'string' ),
+								'last_seen'    => array( 'type' => 'string' ),
 							),
 						),
 					),
@@ -557,7 +611,7 @@ function mmsar_register_abilities() {
 					),
 					'by_detail'           => array(
 						'type'        => 'array',
-						'description' => 'What was asked for within a surface, busiest first, for the surfaces that record it. Two surfaces do: "404 (JSON)" and "404 (markdown)" carry the path an agent asked for and did not find, and "MCP JSON-RPC" carries the method called — "initialize", "tools/list", "tools/call: <tool name>". This is the breakdown that answers whether the MCP server is actually being used rather than merely discovered, and whether agents are guessing at URLs the site could support. Surfaces whose name is already the whole request are absent.',
+						'description' => 'What was asked for within a surface, busiest first, for the surfaces that record it. The 404 surfaces carry the path an agent asked for and did not find; "MCP JSON-RPC" carries the method called — "initialize", "tools/list", "tools/call: <tool name>"; and as of 1.24.0 the Markdown surfaces carry the permalink path of the post that was served, so a crawler that swept the whole corpus and one that wanted a single article are no longer the same row. Both Markdown surfaces record the same value for the same post, so a `.md` fetch and a content-negotiated fetch of one article aggregate together rather than splitting. This is the breakdown that answers whether the MCP server is being used rather than merely discovered, which articles agents actually want in Markdown, and whether agents are guessing at URLs the site could support. Surfaces whose name is already the whole request are absent.',
 						'items'       => array(
 							'type'       => 'object',
 							'properties' => array(
@@ -588,14 +642,23 @@ function mmsar_register_abilities() {
 						'items'       => array(
 							'type'       => 'object',
 							'properties' => array(
-								'logged_at' => array( 'type' => 'string' ),
-								'agent'     => array( 'type' => 'string' ),
-								'surface'   => array( 'type' => 'string' ),
-								'detail'    => array(
+								'logged_at'   => array( 'type' => 'string' ),
+								'agent'       => array( 'type' => 'string' ),
+								'surface'     => array( 'type' => 'string' ),
+								'detail'      => array(
 									'type'        => 'string',
-									'description' => 'What was asked for within the surface — a 404 path, or an MCP method. Empty string on surfaces where the surface name is the whole request.',
+									'description' => 'What was asked for within the surface — a 404 path, an MCP method, or the permalink path of the post served on a Markdown surface. Empty string on surfaces where the surface name is the whole request.',
 								),
-								'ip'        => array( 'type' => 'string' ),
+								'ip'          => array( 'type' => 'string' ),
+								'verified'    => array(
+									'type'        => 'string',
+									'enum'        => array( '', 'verified', 'failed', 'unverifiable', 'unclaimed', 'nodns' ),
+									'description' => 'This entry\'s verification verdict. "failed" means the claimed crawler identity was forged. "unverifiable" means this release has no way to check that operator and is not an accusation. "unclaimed" means no crawler was named. "nodns" means the resolver gave no answer and the entry will be retried. An empty string means it has not been checked yet, so it is not evidence of anything.',
+								),
+								'verified_at' => array(
+									'type'        => 'string',
+									'description' => 'UTC datetime the verdict was reached, "Y-m-d H:i:s", or null when unchecked. Compare it against logged_at: reverse-DNS assignments and published ranges both change, so a verdict reached days after the request is weaker evidence than one reached in the same hour, and a "failed" verdict on an old entry is suggestive rather than proof.',
+								),
 							),
 						),
 					),
@@ -605,6 +668,10 @@ function mmsar_register_abilities() {
 					),
 					'limit'               => array( 'type' => 'integer' ),
 					'offset'              => array( 'type' => 'integer' ),
+					'verified'            => array(
+						'type'        => 'string',
+						'description' => 'The verification filter that was applied to entries, echoed back. Empty string means none was.',
+					),
 				),
 			),
 			'permission_callback' => fn() => current_user_can( 'manage_options' ),
@@ -614,8 +681,16 @@ function mmsar_register_abilities() {
 				$limit        = isset( $input['limit'] ) ? absint( $input['limit'] ) : 50;
 				$limit        = max( 1, min( 500, $limit ) );
 				$offset       = isset( $input['offset'] ) ? absint( $input['offset'] ) : 0;
+				$verified     = isset( $input['verified'] ) ? sanitize_key( $input['verified'] ) : '';
 
-				$summary = MMSAR_Agent_Log::get_summary();
+				// Decide a few identities before reading, so a caller that keeps asking gradually
+				// verifies the log rather than being told forever that everything is pending. Same
+				// bounded batch the admin screen runs, and for the same reason it is here rather
+				// than in record(): a DNS lookup must never sit in front of a response to a visitor.
+				MMSAR_Agent_Log_Verify::run_batch();
+
+				$summary      = MMSAR_Agent_Log::get_summary();
+				$verification = MMSAR_Agent_Log::get_verification_summary();
 
 				$result = array(
 					'logging_enabled'     => MMSAR_Agent_Log::is_active(),
@@ -627,6 +702,17 @@ function mmsar_register_abilities() {
 					'unique_ips'          => $summary['unique_ips'],
 					'first_logged_at'     => $summary['first_logged_at'],
 					'last_logged_at'      => $summary['last_logged_at'],
+					'verification'        => array(
+						'verified'        => (int) $verification['counts'][ MMSAR_Agent_Log_Verify::VERIFIED ],
+						'failed'          => (int) $verification['counts'][ MMSAR_Agent_Log_Verify::FAILED ],
+						'unverifiable'    => (int) $verification['counts'][ MMSAR_Agent_Log_Verify::UNVERIFIABLE ],
+						'unclaimed'       => (int) $verification['counts'][ MMSAR_Agent_Log_Verify::UNCLAIMED ],
+						'nodns'           => (int) $verification['counts'][ MMSAR_Agent_Log_Verify::NODNS ],
+						'pending'         => (int) $verification['pending'],
+						'ranges_captured' => MMSAR_Agent_Log_Verify::ranges_captured(),
+						'first_checked'   => $verification['verified_first'],
+						'last_checked'    => $verification['verified_last'],
+					),
 					'by_agent'            => $summary['by_agent'],
 					'by_surface'          => $summary['by_surface'],
 					'by_detail'           => $summary['by_detail'],
@@ -637,11 +723,12 @@ function mmsar_register_abilities() {
 					return $result;
 				}
 
-				$entries            = MMSAR_Agent_Log::get_entries( $limit, $offset );
+				$entries            = MMSAR_Agent_Log::get_entries( $limit, $offset, $verified );
 				$result['entries']  = $entries;
 				$result['returned'] = count( $entries );
 				$result['limit']    = $limit;
 				$result['offset']   = $offset;
+				$result['verified'] = $verified;
 
 				return $result;
 			},

@@ -277,7 +277,10 @@ class MMSAR_Agent_Skills {
 	private static function serve_skill_md() {
 		mmsar_send_cache_headers();
 		header( 'Content-Type: text/markdown; charset=UTF-8' );
-		MMSAR_Agent_Log::record( 'SKILL.md' );
+		// Only one skill ships today, so this value is constant — recorded anyway, because the
+		// alternative is a surface whose rows say nothing about which skill was fetched the moment
+		// a second one is added, and because a constant costs nothing here.
+		MMSAR_Agent_Log::record( 'SKILL.md', self::SKILL_NAME, true );
 		header( 'Access-Control-Allow-Origin: *' );
 		status_header( 200 );
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional: serving raw text/markdown, not HTML.

@@ -231,11 +231,51 @@ the ability alongside the data:
   never a share of agent traffic.
 - **Retention is configurable.** `0` (the default) keeps everything; with a limit set, the oldest
   entries are dropped, so the first entry is not necessarily the start of the record.
+- **Identity is verified, but not instantly.** Entries arrive unverified and are checked in
+  batches; a `pending` count above zero means the verdict totals cover only the checked part of the
+  log. See below.
+
+### Whether the caller was who it said it was
+
+The `agent` column is a user-agent string, which the caller chooses, and forging one is common
+rather than exotic. On the author's own site, three addresses each rotated through five or more
+AI-crawler identities within seconds, and a readiness scanner wearing GPTBot's name accounted for
+most of the traffic attributed to OpenAI. Read naively, the log said GPTBot was its best customer.
+
+Since 1.24.0 each entry carries a verdict, shown as a badge in an *Identity* column and filterable:
+
+| Verdict | Meaning |
+|---|---|
+| **Verified** | Claimed a known crawler and proved it. |
+| **Spoofed** | Claimed a known crawler and is not it. The user-agent was forged. |
+| **Unverifiable** | Claimed a crawler whose operator publishes no way to check. Not an accusation — an admission that this plugin cannot tell. |
+| **Unclaimed** | Named no known crawler, so there was nothing to check. Most unbranded traffic, including ordinary browsers. |
+| **No DNS** | The resolver gave no usable answer. Retried on a later pass rather than left decided. |
+
+Two methods, chosen per operator, because the operators are split on which they publish:
+
+- **Published IP ranges** for Anthropic, OpenAI and Perplexity. None of them publishes reverse-DNS
+  records for its crawlers, so this is the only method their documentation describes. The ranges are
+  bundled with the plugin rather than fetched, so nothing calls a third-party service and
+  verification works on a host with no outbound HTTP. The trade-off is that they age: the capture
+  date is reported alongside the verdicts, and `mmsar_agent_log_verify_ranges` lets you add a prefix
+  without waiting for a release.
+- **Forward-confirmed reverse DNS** for Google, Apple, Amazon, Microsoft and DuckDuckGo. The address
+  is reversed to a hostname, that hostname is resolved forward and must come back to the same
+  address, and it must sit under a domain the claimed operator owns. Anyone can put any string in a
+  `User-Agent`; nobody can put a record in someone else's DNS zone.
+
+**No lookup ever happens while a page is being served.** DNS can block for seconds, and the log
+records requests while content is going out to the caller. There is no cron either. Verification
+runs in a small bounded batch when an administrator opens the Agent Log screen or reads the log
+through the ability, and in a larger batch from the **Verify now** button — all of them
+authenticated admin contexts, and all of them bounded by a wall-clock budget.
 
 ### Reading it
 
 The screen paginates at 50 entries. **Export CSV** writes the whole log — columns `logged_at_utc`,
-`agent`, `surface`, `ip` — streamed in batches so peak memory does not grow with the log. The
+`agent`, `surface`, `detail`, `ip`, `verified`, `verified_at_utc` — streamed in batches so peak
+memory does not grow with the log. Columns are only ever appended, never reordered. The
 timestamp column is named for its timezone on purpose: rows are stored in UTC and the screen renders
 them in the site's timezone. Cells whose value begins `=`, `+`, `-`, `@`, tab or CR are written with
 a leading apostrophe, because the agent column holds a user-agent string chosen by the caller and
@@ -276,6 +316,6 @@ This plugin exposes abilities for the [WordPress Abilities API](https://develope
 | `make-my-site-agent-ready/list-endpoints` | Always on | Lists every endpoint being published, flagging which are managed on the settings page and which a plugin or theme registered in code, plus where each is actually appearing right now. |
 | `make-my-site-agent-ready/set-endpoint` | Always on | Adds an endpoint, or updates one already managed on the settings page. Send only the fields you want changed when updating. |
 | `make-my-site-agent-ready/delete-endpoint` | Always on (destructive) | Removes an endpoint managed on the settings page. |
-| `make-my-site-agent-ready/get-agent-log` | Always on (read-only) | Reads the agent request log: counts by agent, by surface and by day across the whole log, plus a page of individual entries. Pass `summary_only` for the aggregates alone, which carry counts of distinct IPs but no addresses. |
+| `make-my-site-agent-ready/get-agent-log` | Always on (read-only) | Reads the agent request log: counts by agent, by surface, by requested detail and by day across the whole log, a verification breakdown, plus a page of individual entries. Pass `summary_only` for the aggregates alone, which carry counts of distinct IPs but no addresses, or `verified` to list only entries with a given verdict — `failed` lists the requests that forged a crawler identity. |
 
 Endpoints a plugin or theme registered in code are read-only to `set-endpoint` and `delete-endpoint`: both return a `409` explaining that the owning plugin or theme has to be edited instead. Reporting success for a write that changed nothing would be worse than refusing it.

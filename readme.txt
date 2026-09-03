@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.23.0
+Stable tag: 1.24.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -113,43 +113,39 @@ Use the `mmsar_registered_endpoints` filter for the same thing without a direct 
 
 == Changelog ==
 
+= 1.24.4 - 2026-09-03 =
+* **Fix: No DNS entries are retried automatically, so the re-check button stops asking.** *No DNS* was documented as the retryable verdict, but nothing actually retried it — the only way to reopen one was the button, which meant an address with no reverse record left a "Re-check 1" button on screen permanently, doing nothing each time it was pressed. The ordinary verification pass now picks up any *No DNS* entry older than a day, so a resolver problem repairs itself quietly and a genuinely unresolvable address stops asking for attention.
+* **Change:** the re-check button is now only about entries that became answerable because an update taught the plugin a new operator — the one case where a person is actually needed, since the plugin cannot detect that about itself. When there is nothing of the kind, the button is not shown at all.
+* `Verified`, `Spoofed` and `Unverifiable` verdicts remain untouchable by an automatic pass; only a never-checked entry or a day-old *No DNS* one can be written.
+
+= 1.24.3 - 2026-09-03 =
+* **Fix: the re-check button no longer offers work it cannot do.** It counted every undecided entry, but most of them are *Unverifiable* because nobody publishes a way to confirm that crawler at all — re-checking those produces the same answer every time. The button now counts only entries whose verdict could actually come out differently: anything that failed to resolve, and anything whose operator this plugin has since learned. On a log full of uncheckable crawlers the button correctly disappears.
+* **New:** the panel names the crawlers it cannot check and says why, so a count that never moves reads as an answer rather than as something stuck.
+* **Fix:** the re-check result now reports what actually changed. It said how many entries it had reopened, which looked like progress even when every one reached the same verdict; it now says either how many verdicts changed or that none did.
+
+= 1.24.2 - 2026-09-03 =
+* **New: a "Re-check undecided" button on the Agent Log screen.** A verdict of *Unverifiable* or *No DNS* records that the plugin had no way to check an identity — not that the caller was suspicious — so those entries become answerable the moment an update teaches it a new operator. That happened immediately: 1.24.1 taught it DuckAssistBot, and the entries already in the log kept saying *No DNS*. This button reopens them and judges them again. *Verified* and *Spoofed* entries are deliberately left alone, so a re-check can never overwrite a conclusion already reached.
+* **Fix:** re-checking also clears the cached verdict for the addresses involved. Without that, an *Unverifiable* result cached against an address for a week would have been handed straight back and the re-check would have appeared to do nothing.
+
+= 1.24.1 - 2026-09-03 =
+* **Fix: DuckAssistBot is verified instead of unresolvable.** 1.24.0 checked it by reverse DNS, and live data showed why that was wrong: all 13 of its requests came from Azure addresses with no reverse record at all, so every one was recorded as "no DNS" rather than confirmed. DuckDuckGo publishes an IP range file instead, which covers all 13 — those requests now read as verified. The `duckduckgo.com` hostname suffix has been removed, so a DuckAssistBot claim from outside the published range is now identified as forged rather than left undecided, and costs no DNS lookup either way.
+* **Dev:** the bundled range data gains a fourth operator group (DuckDuckGo, 486 prefixes, captured 2026-09-01). Existing verdicts are not rewritten in place — entries keep the verdict they were given, and re-checking is a matter of clearing the log or waiting for new traffic.
+
+= 1.24.0 - 2026-09-03 =
+* **New: the agent log verifies who callers actually are.** The `agent` column has always been a self-declared user-agent string, and on a real site it is routinely forged — three addresses in one nine-day sample each rotated through five or more AI-crawler identities, and a readiness scanner accounted for most traffic attributed to GPTBot. Each entry now carries a verdict: `verified`, `failed` (the identity was forged), `unverifiable` (no published way to check that operator — not an accusation), `unclaimed` (no crawler was named), or `nodns`.
+* **New: two verification methods, chosen per operator.** Anthropic, OpenAI and Perplexity publish no reverse-DNS records for their crawlers, only IP range files, so those are checked against ranges bundled with the plugin. Google, Apple, Amazon, Microsoft and DuckDuckGo are checked by forward-confirmed reverse DNS — the address reverses to a hostname under a domain that operator owns, and that hostname resolves back to the same address. A user-agent is trivial to forge; neither of these is.
+* **New: markdown surfaces record which page was fetched.** `.md` URLs, content negotiation and `SKILL.md` now store the permalink path of the post served, so `by_detail` distinguishes a crawler sweeping the whole corpus from one that wanted a specific article. Every alias for a post — the `.md` suffix, the negotiated canonical URL, a trailing slash — records the same value, so they aggregate together instead of splitting.
+* **New:** an *Identity* column with badges and a verdict filter on the Agent Log screen, a "Verify now" button for clearing a backlog, `verified` and `verified_at` columns appended to the CSV export, a forged-count headline on the dashboard widget, and a `verification` block, `verified` input filter and per-agent verdict counts on the `get-agent-log` ability.
+* **Fix:** a request for a `.md` URL that does not exist was not recorded at all. It took an earlier exit than the other two 404 paths, so the 404 an agent is most likely to produce against this plugin was the one the log could not show. It is now recorded with its path.
+* **Fix:** stored paths no longer flatten non-ASCII characters. Accented and non-Latin slugs were reduced to the same value, which could merge two different posts into one `by_detail` row. Control characters are still stripped, which was the actual reason for the original filter.
+* **Dev:** log schema bumped to version 3. The two new columns are added by `dbDelta` on the next page load after updating; existing entries are kept and start unverified. Verification never runs while a page is being served to a visitor — it runs in a small bounded batch when an administrator opens the Agent Log screen or calls the ability, and in a larger batch from the button. No cron, no third-party requests.
+* **Note:** because the markdown surfaces now record a path, a crawler sweeping forty markdown files writes forty entries where it previously wrote one. That is the point of the change, but the log grows faster than before, so the retention limit is worth a look on content-heavy sites.
+
 = 1.23.0 - 2026-08-31 =
 * New: The agent log now records **what** was asked for, not just which surface. A new detail column carries the requested path on a 404 and the invoked method on an MCP call. Shown on the Agent Log screen, included in the CSV export, and returned by the `get-agent-log` ability both per-entry and as a new `by_detail` aggregate.
 * New: **The MCP endpoint is logged.** Every JSON-RPC message is recorded with its method — `initialize`, `tools/list`, `tools/call: <tool name>` — along with declined GET stream requests, unparseable bodies and rate-limited callers. Previously only the `mcp.json` and `server-card.json` discovery documents were logged, so there was no way to tell whether a client that found the MCP server ever actually called it.
 * New: **404s record the path.** A count of agent 404s said only that agents were asking for something absent; the path shows a crawler guessing at a URL pattern the site could support, which was previously invisible.
 * Dev: Log schema bumped to version 2. The new column is added by `dbDelta` on the next page load after updating — existing entries are kept and simply carry an empty detail.
-
-= 1.22.3 - 2026-08-31 =
-* Fix: Removed an unused dependency. `composer.json` required `yahnis-elsts/plugin-update-checker`, which the plugin never loaded and which was not present in `vendor/` — a leftover from an abandoned self-update experiment. Nothing in the shipped code referenced it.
-* Fix: The bundled Composer metadata identified the plugin by a stale package name inherited from the project it was originally derived from. Regenerated, so `vendor/composer/installed.php` now names this plugin.
-* Dev: Added `composer.lock`, so the bundled `vendor/` tree is reproducible. `league/html-to-markdown` stays at 5.1.1 — the Markdown converter is byte-for-byte unchanged.
-
-= 1.22.2 - 2026-08-30 =
-* Fix: The `phpcs:ignore` on the post-meta cleanup query in `uninstall.php` now carries a written justification, matching the one on the table-drop query below it. A WordPress.org reviewer re-scans without honouring inline ignores, so a bare one reads as a hidden problem rather than a reviewed decision. No code changed — the query is the same.
-
-= 1.22.1 - 2026-08-29 =
-* Fix: Plugin Check now passes clean. The plugin declared `Domain Path: /languages` and called `load_plugin_textdomain()` against a directory that is empty and has never been in the distributed zip, so both described something that does not exist; WordPress has loaded plugin translations just in time since 4.6, well below this plugin's 6.2 minimum, so nothing is lost by removing them.
-* Fix: `wp_register_ability_category()` is guarded by its own `function_exists()` check. The abilities file already returned early when the Abilities API was absent, but the category function is a separate one, and the guard now holds by construction rather than by the file-level return happening to have run first.
-* Change: The two heredoc blocks — the Agent Skills SKILL.md and the MCP results panel — are built from string arrays instead. Output is byte-identical: the served SKILL.md hashes to the same SHA-256 the discovery index advertised before the change.
-* Change: The Changelog in this file keeps only recent releases and points at CHANGELOG.md for the rest. WordPress.org truncates this section at 5,000 characters and it had grown to roughly 33,000, so most of the history was being silently cut.
-* Change: Added a composer.json describing the two bundled vendor packages, and it now ships in the release zip alongside vendor/.
-* Change: Tested up to 7.1.
-
-= 1.22.0 - 2026-08-29 =
-* New: The `Link: rel="describedby"` relation now resolves to the scoped llms.txt that covers the page being requested, instead of always pointing at the root index. A page under `/media/` advertises `/media/llms.txt`; a page outside any scoped section still advertises `/llms.txt`. The scoped indexes have generated and served since 1.21.0, but nothing advertised them, so they could only be found by an agent that had already guessed the path — which is the v1 behaviour the llms.txt v2 proposal exists to replace.
-* New: Markdown responses carry the `describedby` header too. A `.md` URL, a Markdown 404 and a negotiated Markdown page all exit before the ordinary page headers are sent, so they previously advertised no index at all. The v2 proposal singles this case out: the header form "also works for non-HTML resources, such as the markdown files themselves", which have no `<head>` to carry a `<link>`.
-* Change: The footer llms.txt link follows the same scoping, and names the section it points at — "Press & Talks index for AI agents" on a page under that section. Two links in one response claiming the same relation and disagreeing about the target is worse than either alone. The `mmsar_llms_txt_link_text` filter now also receives the resolved URL and the covering section.
-* Change: A 404 under a scoped section sends an agent to that section's index rather than the site-wide one — the section it was already in is where the URL it wanted most likely lives.
-* Note: The advertised media type stays `text/plain`, matching what the file is actually served as. The llms.txt v2 proposal specifies no media type for `describedby` at all — its own example attaches `type="text/markdown"` only to the `rel="alternate"` Markdown-page link — so `text/plain` is both accurate and conformant.
-
-= 1.21.3 - 2026-08-28 =
-* Housekeeping: coding-standards cleanup across the includes — array and assignment alignment, one pre-increment, and two parameter names that shadowed PHP reserved words. No functional change; the plugin behaves identically.
-
-= 1.21.2 - 2026-08-27 =
-* New: The MCP get_site_overview tool lists /auth.md among the site's endpoints. It was the one document the overview never mentioned, which is backwards: an agent asking what a site offers should be told how to get in.
-* Fix: The overview advertised /openapi.json even on a site where the plugin has stood down from serving it, because a real openapi.json already exists in the web root. It now checks before listing it.
-* Fix: Removed a stray blank line from the end of the overview output.
-* Change: Internal code quality. The overview builder was one long function with four conditionals wrapped around unindented blocks; it is now four small methods, one per section. Also removed a dead method and a redundant array_values() call left behind by the 1.21.1 rewrite of the ARD catalog. No behavior change from any of these.
 
 Older releases are listed in CHANGELOG.md in the plugin's GitHub repository:
 https://github.com/miriamschwab/make-my-site-agent-ready/blob/main/CHANGELOG.md

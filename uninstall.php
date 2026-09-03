@@ -33,6 +33,23 @@ delete_transient( 'mmsar_negotiation_check_pending' );
 delete_transient( 'mmsar_negotiation_check_notice' );
 
 global $wpdb;
+
+// The agent log's per-request transients: the record() throttle (mmsar_al_) and the identity
+// verdicts cached against an IP (mmsar_alv_, added 1.24.0). Both are keyed by a hash, so there is
+// no finite list of names to delete and delete_transient() cannot reach them; a LIKE sweep is the
+// only way. Options table only — with a persistent object cache these live in memory and expire on
+// their own TTL, which is why this is best-effort rather than exhaustive.
+// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Removing this plugin's own hash-keyed transients on uninstall; no core API deletes options by prefix.
+$wpdb->query(
+	$wpdb->prepare(
+		"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s",
+		$wpdb->esc_like( '_transient_mmsar_al_' ) . '%',
+		$wpdb->esc_like( '_transient_timeout_mmsar_al_' ) . '%',
+		$wpdb->esc_like( '_transient_mmsar_alv_' ) . '%',
+		$wpdb->esc_like( '_transient_timeout_mmsar_alv_' ) . '%'
+	)
+);
+
 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Removing this plugin's own cached markdown post meta on uninstall. No core API deletes meta by key across all posts, and caching is meaningless for a one-time delete.
 $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_llmmd_content' ) );
 
