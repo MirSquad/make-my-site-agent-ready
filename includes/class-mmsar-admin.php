@@ -574,13 +574,51 @@ class MMSAR_Admin {
 	 * @return void
 	 */
 	public static function render_agent_log_pages_field() {
-		$checked = '1' === get_option( 'mmsar_agent_log_pages', '' ) ? 'checked' : '';
-		echo '<label><input type="checkbox" name="mmsar_agent_log_pages" value="1" ' . esc_attr( $checked ) . '> ';
-		esc_html_e( 'Record ordinary page views from recognized AI agents and crawlers', 'make-my-site-agent-ready' );
-		echo '</label>';
+		$mode    = MMSAR_Agent_Log::page_view_mode();
+		$choices = array(
+			'off'    => __( 'Don\'t record page views', 'make-my-site-agent-ready' ),
+			'agents' => __( 'Only from recognized AI agents and crawlers', 'make-my-site-agent-ready' ),
+			'all'    => __( 'Every page view, including people', 'make-my-site-agent-ready' ),
+		);
+		$notes   = array(
+			'off'    => __( 'You see only the clients that fetched an agent-facing file.', 'make-my-site-agent-ready' ),
+			'agents' => __( 'Adds the denominator for recognized crawlers: who came and ignored the agent-facing files.', 'make-my-site-agent-ready' ),
+			'all'    => __( 'Closes the blind spot. Without it, an unrecognized client\'s agent-file requests are recorded while its ordinary page views are not, so anything unbranded looks like it reads nothing else.', 'make-my-site-agent-ready' ),
+		);
+
+		echo '<fieldset>';
+		foreach ( $choices as $value => $label ) {
+			printf(
+				'<label style="display:block;margin-bottom:.35em;"><input type="radio" name="mmsar_agent_log_pages" value="%1$s" %2$s> %3$s <span class="description">%4$s</span></label>',
+				esc_attr( $value ),
+				checked( $mode, $value, false ),
+				esc_html( $label ),
+				esc_html( $notes[ $value ] )
+			);
+		}
+		echo '</fieldset>';
+
 		echo '<p class="description">';
-		esc_html_e( 'Without this you only see the agents that fetched an agent-facing file, which tells you who used them but not who came and ignored them. With it on, every front-end request costs one check of the user-agent string.', 'make-my-site-agent-ready' );
+		esc_html_e( 'Recording every page view means the log holds human traffic too. Those rows are stored against a network rather than a full address (203.0.113.4 becomes 203.0.113.0), and against the page they resolved to, never the raw URL a visitor typed. A recognized crawler keeps its full address, which is what identity verification runs against.', 'make-my-site-agent-ready' );
 		echo '</p>';
+		echo '<p class="description">';
+		esc_html_e( 'Set a retention limit on the Agent Log screen before switching this on for a busy site. It records one entry per visitor, per page, per five minutes.', 'make-my-site-agent-ready' );
+		echo '</p>';
+	}
+
+	/**
+	 * Sanitizes the page-view mode, keeping the pre-1.25.0 checkbox value meaningful.
+	 *
+	 * @param mixed $value Submitted value.
+	 * @return string
+	 */
+	public static function sanitize_page_view_mode( $value ) {
+		$value = is_scalar( $value ) ? (string) $value : '';
+		if ( 'all' === $value ) {
+			return 'all';
+		}
+		// '1' is what the old checkbox stored, and it still means "recognized agents only".
+		return ( 'agents' === $value || '1' === $value ) ? '1' : '';
 	}
 
 	/**
@@ -761,7 +799,7 @@ class MMSAR_Admin {
 			'mmsar_settings_group',
 			'mmsar_agent_log_pages',
 			array(
-				'sanitize_callback' => array( __CLASS__, 'sanitize_checkbox' ),
+				'sanitize_callback' => array( __CLASS__, 'sanitize_page_view_mode' ),
 				'default'           => '',
 			)
 		);

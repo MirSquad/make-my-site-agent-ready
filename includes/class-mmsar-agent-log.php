@@ -25,7 +25,7 @@ class MMSAR_Agent_Log {
 	/**
 	 * Schema version. Bump to trigger dbDelta on the next load.
 	 */
-	const DB_VERSION = 3;
+	const DB_VERSION = 4;
 
 	/**
 	 * Option holding the installed schema version.
@@ -103,7 +103,7 @@ class MMSAR_Agent_Log {
 		// Ordinary page views are only inspected when the owner opts in, and even then the work is
 		// one pass over the user-agent. Everything else is triggered from a serve point the plugin
 		// already owns, so a normal HTML request costs nothing at all.
-		if ( '1' === get_option( 'mmsar_agent_log_pages', '' ) ) {
+		if ( 'off' !== self::page_view_mode() ) {
 			add_action( 'template_redirect', array( __CLASS__, 'maybe_record_page_view' ), 20 );
 		}
 	}
@@ -148,9 +148,11 @@ class MMSAR_Agent_Log {
 			ip varchar(45) NOT NULL DEFAULT '',
 			verified varchar(12) NOT NULL DEFAULT '',
 			verified_at datetime DEFAULT NULL,
+			client_type varchar(12) NOT NULL DEFAULT '',
 			PRIMARY KEY  (id),
 			KEY logged_at (logged_at),
-			KEY verified (verified)
+			KEY verified (verified),
+			KEY client_type (client_type)
 			) {$collate};"
 		);
 
@@ -234,39 +236,117 @@ class MMSAR_Agent_Log {
 	 * @param int    $offset   Rows to skip.
 	 * @param string $verified Restrict to one verification verdict. Empty string means no filter,
 	 *                         which is why 'pending' rather than '' addresses the unchecked rows.
+	 * @param string $client   Restrict by client type: a CLIENT_* value to match one, 'all' for
+	 *                         everything, or '' (the default) for everything except browser page
+	 *                         views.
 	 * @return array[] Entries as associative arrays.
 	 */
-	public static function get_entries( $per_page = 50, $offset = 0, $verified = '' ) {
+	public static function get_entries( $per_page = 50, $offset = 0, $verified = '', $client = '' ) {
+		$verdict = self::verified_where( $verified );
+		$verdict = null === $verdict ? '' : $verdict;
+
+		// Browser page views are recorded for the denominator, not for reading. Excluding them by
+		// default is what keeps this an agent log rather than a visitor list: the question it exists
+		// to answer is what agents did, and a screen showing mostly people answers a different one.
+		$is     = in_array( $client, self::client_types(), true ) ? $client : '';
+		$is_not = ( '' === $is && 'all' !== $client ) ? self::CLIENT_BROWSER : '';
+
+		return self::query_entries( $per_page, $offset, $verdict, $is, $is_not );
+	}
+
+	/**
+	 * Runs the paged entry query.
+	 *
+	 * The SQL is one fixed string with every value a placeholder, rather than a WHERE clause
+	 * assembled from fragments. A generated clause is safe when the fragments are literals, but it
+	 * cannot be *read* as safe without tracing where each one came from, and the WordPress.org
+	 * review re-scans without honouring inline suppressions. Passing an empty string disables a
+	 * condition instead: `%s = ''` short-circuits it, so one static query serves every combination.
+	 *
+	 * @param int    $per_page Rows per page.
+	 * @param int    $offset   Rows to skip.
+	 * @param string $verdict  Verdict to match, or '' for any.
+	 * @param string $is       Client type to match, or '' for any.
+	 * @param string $is_not   Client type to exclude, or '' for none.
+	 * @return array[]
+	 */
+	private static function query_entries( $per_page, $offset, $verdict, $is, $is_not ) {
 		global $wpdb;
-
-		$where = self::verified_where( $verified );
-
-		if ( null !== $where ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would show a stale log.
-			$rows = $wpdb->get_results(
-				$wpdb->prepare(
-					'SELECT logged_at, surface, detail, agent, ip, verified, verified_at FROM %i WHERE verified = %s ORDER BY id DESC LIMIT %d OFFSET %d',
-					self::table(),
-					$where,
-					absint( $per_page ),
-					absint( $offset )
-				),
-				ARRAY_A
-			);
-			return is_array( $rows ) ? $rows : array();
-		}
-
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would show a stale log.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				'SELECT logged_at, surface, detail, agent, ip, verified, verified_at FROM %i ORDER BY id DESC LIMIT %d OFFSET %d',
+				"SELECT logged_at, surface, detail, agent, ip, verified, verified_at, client_type
+				FROM %i
+				WHERE ( %s = '' OR verified = %s )
+				  AND ( %s = '' OR client_type = %s )
+				  AND ( %s = '' OR client_type <> %s )
+				ORDER BY id DESC LIMIT %d OFFSET %d",
 				self::table(),
+				$verdict,
+				$verdict,
+				$is,
+				$is,
+				$is_not,
+				$is_not,
 				absint( $per_page ),
 				absint( $offset )
 			),
 			ARRAY_A
 		);
 		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * Rows matching a verdict and client filter, for pagination.
+	 *
+	 * @param string $verified Verdict filter, as accepted by get_entries().
+	 * @param string $client   Client filter, as accepted by get_entries().
+	 * @return int
+	 */
+	public static function count_filtered( $verified = '', $client = '' ) {
+		global $wpdb;
+		$verdict = self::verified_where( $verified );
+		$verdict = null === $verdict ? '' : $verdict;
+
+		$is     = in_array( $client, self::client_types(), true ) ? $client : '';
+		$is_not = ( '' === $is && 'all' !== $client ) ? self::CLIENT_BROWSER : '';
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
+		return (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM %i
+				WHERE ( %s = '' OR verified = %s )
+				  AND ( %s = '' OR client_type = %s )
+				  AND ( %s = '' OR client_type <> %s )",
+				self::table(),
+				$verdict,
+				$verdict,
+				$is,
+				$is,
+				$is_not,
+				$is_not
+			)
+		);
+	}
+
+	/**
+	 * Counts per client type across the whole log.
+	 *
+	 * @return array<string, int>
+	 */
+	public static function get_client_type_counts() {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table.
+		$rows                 = $wpdb->get_results( $wpdb->prepare( 'SELECT client_type, COUNT(*) AS requests FROM %i GROUP BY client_type', self::table() ), ARRAY_A );
+		$counts               = array_fill_keys( self::client_types(), 0 );
+		$counts['unrecorded'] = 0;
+		foreach ( (array) $rows as $row ) {
+			$key = isset( $row['client_type'] ) && '' !== $row['client_type'] ? (string) $row['client_type'] : 'unrecorded';
+			if ( isset( $counts[ $key ] ) ) {
+				$counts[ $key ] += (int) $row['requests'];
+			}
+		}
+		return $counts;
 	}
 
 	/**
@@ -715,7 +795,7 @@ class MMSAR_Agent_Log {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would show a stale log.
 			$rows = $wpdb->get_results(
 				$wpdb->prepare(
-					'SELECT id, logged_at, surface, detail, agent, ip, verified, verified_at FROM %i WHERE id < %d ORDER BY id DESC LIMIT %d',
+					'SELECT id, logged_at, surface, detail, agent, ip, verified, verified_at, client_type FROM %i WHERE id < %d ORDER BY id DESC LIMIT %d',
 					self::table(),
 					$before_id,
 					$limit
@@ -726,7 +806,7 @@ class MMSAR_Agent_Log {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
 			$rows = $wpdb->get_results(
 				$wpdb->prepare(
-					'SELECT id, logged_at, surface, detail, agent, ip, verified, verified_at FROM %i ORDER BY id DESC LIMIT %d',
+					'SELECT id, logged_at, surface, detail, agent, ip, verified, verified_at, client_type FROM %i ORDER BY id DESC LIMIT %d',
 					self::table(),
 					$limit
 				),
@@ -899,6 +979,156 @@ class MMSAR_Agent_Log {
 	}
 
 	/**
+	 * Client types. What kind of software made the request, as distinct from who it claimed to be.
+	 */
+	const CLIENT_CRAWLER = 'crawler';
+	const CLIENT_BROWSER = 'browser';
+	const CLIENT_HTTP    = 'http';
+
+	/**
+	 * What kind of client made this request, from the headers a browser engine cannot help sending.
+	 *
+	 * **This separates browser engines from HTTP clients. It does not separate people from
+	 * machines,** and the difference matters enough to state at the top. An agent driving a real
+	 * Chrome through Playwright sends every header below, because it *is* Chrome, and is
+	 * indistinguishable here from a person reading the site. What this does catch is the far more
+	 * common case: an agent using a fetch tool, a script, a scraper or a CLI, none of which send any
+	 * of these.
+	 *
+	 * The signals, strongest first:
+	 *
+	 * - **`Sec-Fetch-*`**. Fetch Metadata request headers (W3C). Every current browser sends them on
+	 *   a navigation and they are on the forbidden-header list, so page JavaScript cannot set or
+	 *   remove them. curl, `node:fetch`, Python requests and the fetch tools agents use send none.
+	 *   Confirmed against this site: a browser navigation arrives with `Sec-Fetch-Mode: navigate`
+	 *   and `Sec-Fetch-Dest: document`; a bare curl arrives with neither.
+	 * - **`Sec-CH-UA`**. User-agent client hints, Chromium only, so its absence proves nothing on
+	 *   Safari or Firefox and its presence is good evidence.
+	 * - **`Accept-Language`**. Weak on its own, since some clients set it, and useful as a tiebreak.
+	 *
+	 * A declared crawler name short-circuits all of it: those are already described by the `agent`
+	 * column and its verification verdict, and calling ClaudeBot an "http client" would bury the
+	 * more useful fact.
+	 *
+	 * @return string One of the CLIENT_* constants.
+	 */
+	private static function detect_client_type() {
+		if ( self::is_known_agent( self::user_agent() ) ) {
+			return self::CLIENT_CRAWLER;
+		}
+
+		foreach ( array( 'HTTP_SEC_FETCH_MODE', 'HTTP_SEC_FETCH_DEST', 'HTTP_SEC_FETCH_SITE', 'HTTP_SEC_FETCH_USER', 'HTTP_SEC_CH_UA' ) as $header ) {
+			if ( ! empty( $_SERVER[ $header ] ) ) {
+				return self::CLIENT_BROWSER;
+			}
+		}
+
+		// No fetch metadata at all. Before calling it a script, allow for a browser old enough to
+		// predate those headers: it would still send a language and an HTML-shaped Accept listing
+		// several types with quality values, which a fetch tool almost never does.
+		$accept = isset( $_SERVER['HTTP_ACCEPT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_ACCEPT'] ) ) : '';
+		if ( ! empty( $_SERVER['HTTP_ACCEPT_LANGUAGE'] ) && false !== stripos( $accept, 'text/html' ) && false !== strpos( $accept, ';q=' ) ) {
+			return self::CLIENT_BROWSER;
+		}
+
+		return self::CLIENT_HTTP;
+	}
+
+	/**
+	 * Human-readable label for a client type.
+	 *
+	 * @param string $type Stored client type.
+	 * @return string
+	 */
+	public static function client_type_label( $type ) {
+		switch ( $type ) {
+			case self::CLIENT_CRAWLER:
+				return __( 'Declared crawler', 'make-my-site-agent-ready' );
+			case self::CLIENT_BROWSER:
+				return __( 'Browser', 'make-my-site-agent-ready' );
+			case self::CLIENT_HTTP:
+				return __( 'Script or fetch tool', 'make-my-site-agent-ready' );
+			default:
+				return __( 'Not recorded', 'make-my-site-agent-ready' );
+		}
+	}
+
+	/**
+	 * Every client type value, for schemas and filters.
+	 *
+	 * @return string[]
+	 */
+	public static function client_types() {
+		return array( self::CLIENT_CRAWLER, self::CLIENT_BROWSER, self::CLIENT_HTTP );
+	}
+
+	/**
+	 * How much ordinary page-view traffic is recorded. /**
+	 * How much ordinary page-view traffic is recorded.
+	 *
+	 * Three states in one option, kept backwards compatible: the value was a checkbox until 1.25.0,
+	 * so the stored '1' still means "recognized agents only" and an empty value still means off.
+	 *
+	 * @return string 'off', 'agents' or 'all'.
+	 */
+	public static function page_view_mode() {
+		$stored = (string) get_option( 'mmsar_agent_log_pages', '' );
+		if ( 'all' === $stored ) {
+			return 'all';
+		}
+		return '1' === $stored ? 'agents' : 'off';
+	}
+
+	/**
+	 * Reduces an address to its network, for storing against traffic that is probably a person.
+	 *
+	 * IPv4 keeps three octets, IPv6 the first four groups. That is enough to tell one visitor's
+	 * session apart from another's in the log and to recognise a cloud range, and not enough to be
+	 * an identifier for a household.
+	 *
+	 * **Applied only to page views from user-agents this plugin does not recognise as crawlers.**
+	 * A request for an agent-facing endpoint keeps its full address whoever made it: those are
+	 * deliberate requests for machine-readable files rather than someone reading the site, and the
+	 * exact address is what made the scanner pool identifiable in the first place. Recognized
+	 * crawlers keep theirs too, because verification needs it.
+	 *
+	 * @param string $ip Client IP.
+	 * @return string Network-level address, or '' when the input will not parse.
+	 */
+	public static function anonymize_ip( $ip ) {
+		$ip = (string) $ip;
+		if ( '' === $ip || ! filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+			return '';
+		}
+		if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
+			$groups = explode( ':', (string) inet_ntop( inet_pton( $ip ) ) );
+			return implode( ':', array_slice( $groups, 0, 4 ) ) . '::';
+		}
+		$octets = explode( '.', $ip );
+		if ( 4 !== count( $octets ) ) {
+			return '';
+		}
+		$octets[3] = '0';
+		return implode( '.', $octets );
+	}
+
+	/**
+	 * Whether a user-agent names a crawler this plugin recognises.
+	 *
+	 * @param string $ua User-agent string.
+	 * @return bool
+	 */
+	private static function is_known_agent( $ua ) {
+		foreach ( self::AGENTS as $needle ) {
+			if ( false !== stripos( $ua, $needle ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Records one agent request.   /**
 	 * Records one agent request.
 	 *
 	 * Called from the plugin's serve points, which is why there is no user-agent test: a request
@@ -911,9 +1141,14 @@ class MMSAR_Agent_Log {
 	 *                                    Empty for surfaces where the name is the whole answer.
 	 * @param bool   $throttle_on_detail  Whether two requests differing only in $detail are two
 	 *                                    entries rather than one. See below.
+	 * @param bool   $anonymize           Store the caller's network rather than its full address.
+	 *                                    Set for page views from user-agents this plugin does not
+	 *                                    recognise as crawlers, which are mostly people. Never
+	 *                                    affects the throttle, which always keys on the real
+	 *                                    address; see anonymize_ip().
 	 * @return void
 	 */
-	public static function record( $surface, $detail = '', $throttle_on_detail = false ) {
+	public static function record( $surface, $detail = '', $throttle_on_detail = false, $anonymize = false ) {
 		if ( ! self::is_active() ) {
 			return;
 		}
@@ -921,6 +1156,11 @@ class MMSAR_Agent_Log {
 		$agent  = self::agent_label();
 		$ip     = self::client_ip();
 		$detail = (string) $detail;
+
+		// The throttle always keys on the real address, even when a reduced one is stored: it lives
+		// in a transient for five minutes and never reaches the table, and keying it on the network
+		// instead would collapse everyone behind one ISP range into a single entry.
+		$stored_ip = $anonymize ? self::anonymize_ip( $ip ) : $ip;
 
 		// Throttle before touching the database. Only reached by requests already known to be
 		// agent-facing, so this never runs on an ordinary page view.
@@ -945,13 +1185,14 @@ class MMSAR_Agent_Log {
 		$inserted = $wpdb->insert(
 			self::table(),
 			array(
-				'logged_at' => current_time( 'mysql', true ),
-				'surface'   => mb_substr( $surface, 0, 100 ),
-				'detail'    => self::fit_detail( $detail ),
-				'agent'     => mb_substr( $agent, 0, 120 ),
-				'ip'        => $ip,
+				'logged_at'   => current_time( 'mysql', true ),
+				'surface'     => mb_substr( $surface, 0, 100 ),
+				'detail'      => self::fit_detail( $detail ),
+				'agent'       => mb_substr( $agent, 0, 120 ),
+				'ip'          => $stored_ip,
+				'client_type' => self::detect_client_type(),
 			),
-			array( '%s', '%s', '%s', '%s', '%s' )
+			array( '%s', '%s', '%s', '%s', '%s', '%s' )
 		);
 
 		// Prune every so often rather than on every insert: an append is the cost this request
@@ -1025,10 +1266,24 @@ class MMSAR_Agent_Log {
 	 * agent-facing file, and "which agents ask for markdown" cannot be answered without also
 	 * knowing which ones came and did not.
 	 *
+	 * In 'all' mode it records every page view, not only those from a recognised crawler. That
+	 * closes a blind spot which quietly distorted every share calculated from this log: an
+	 * unrecognised client's agent-surface requests were recorded while its ordinary page views were
+	 * not, so anything unbranded looked like it consumed nothing but agent-facing files. It also
+	 * means the log now contains human traffic, which is why those rows are stored against a
+	 * network rather than an address.
+	 *
 	 * @return void
 	 */
 	public static function maybe_record_page_view() {
 		if ( is_admin() || is_feed() || ! self::is_active() ) {
+			return;
+		}
+
+		// A 404 is recorded by the 404 surfaces, which already reason carefully about the fact that
+		// the path is caller-supplied. Recording it a second time here would duplicate the row and,
+		// worse, put that unbounded path into this surface's throttle key.
+		if ( is_404() ) {
 			return;
 		}
 
@@ -1037,18 +1292,63 @@ class MMSAR_Agent_Log {
 			return;
 		}
 
-		$matched = '';
-		foreach ( self::AGENTS as $needle ) {
-			if ( false !== stripos( $ua, $needle ) ) {
-				$matched = $needle;
-				break;
-			}
-		}
-		if ( '' === $matched ) {
+		$known = self::is_known_agent( $ua );
+		if ( ! $known && 'all' !== self::page_view_mode() ) {
 			return;
 		}
 
-		self::record( 'HTML page view (' . self::accept_summary() . ')' );
+		// Unrecognised user-agents are mostly people. Their address is reduced to its network before
+		// storage; a recognised crawler keeps its full one, which is what verification runs against.
+		self::record(
+			'HTML page view (' . self::accept_summary() . ')',
+			self::page_view_path(),
+			true,
+			! $known
+		);
+	}
+
+	/**
+	 * The path to record for a page view, derived from the resolved query rather than the request.
+	 *
+	 * Never `REQUEST_URI`. This value goes into the throttle key, and the key is what stops a caller
+	 * writing a row per request: a search query or a junk querystring is unbounded caller input, so
+	 * keying on it would hand anyone a way to grow the table at will. Everything below comes from
+	 * WordPress resolving the request to something the site actually publishes.
+	 *
+	 * A singular view returns the same permalink path the Markdown surfaces record, which is the
+	 * point: it makes "read as HTML" and "pulled as Markdown" directly comparable per article.
+	 *
+	 * @return string
+	 */
+	private static function page_view_path() {
+		if ( is_singular() ) {
+			$id = get_queried_object_id();
+			return $id ? self::request_path( (string) get_permalink( $id ) ) : '/';
+		}
+		if ( is_front_page() || is_home() ) {
+			return '/';
+		}
+		if ( is_search() ) {
+			// Deliberately not the search term, which is caller-supplied and unbounded.
+			return '(search)';
+		}
+
+		$queried = get_queried_object();
+		if ( $queried instanceof WP_Term ) {
+			$link = get_term_link( $queried );
+			return is_wp_error( $link ) ? '(archive)' : self::request_path( (string) $link );
+		}
+		if ( $queried instanceof WP_Post_Type ) {
+			return self::request_path( (string) get_post_type_archive_link( $queried->name ) );
+		}
+		if ( $queried instanceof WP_User ) {
+			return self::request_path( (string) get_author_posts_url( $queried->ID ) );
+		}
+		if ( is_date() ) {
+			return '(date archive)';
+		}
+
+		return '(other)';
 	}
 
 	/**

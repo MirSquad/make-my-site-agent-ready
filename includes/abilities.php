@@ -494,6 +494,12 @@ function mmsar_register_abilities() {
 						'default'     => false,
 						'description' => 'Return the aggregates and omit individual entries. The aggregates carry no IP addresses, so this is also the way to read the log without handling them.',
 					),
+					'client'       => array(
+						'type'        => 'string',
+						'enum'        => array( '', 'crawler', 'browser', 'http', 'all' ),
+						'default'     => '',
+						'description' => 'Restrict entries by what kind of client made the request, judged from headers a browser engine cannot avoid sending. "crawler" declared a known crawler name. "browser" sent a real browser signature. "http" is a script, CLI or agent fetch tool, which is what an agent using a fetch tool looks like. Empty string is the default and returns everything except browsers, because this is an agent log and browser page views are recorded as a denominator rather than as agent traffic; pass "all" to include them. A browser signature identifies the software, not a person: an agent driving a headless Chrome is indistinguishable from a human reader here.',
+					),
 					'verified'     => array(
 						'type'        => 'string',
 						'enum'        => array( '', 'verified', 'failed', 'unverifiable', 'unclaimed', 'nodns', 'pending' ),
@@ -510,8 +516,9 @@ function mmsar_register_abilities() {
 						'description' => 'False when the agent log feature is switched off. Existing entries are still readable; nothing new is being recorded, so a quiet recent period may mean the log was off rather than that no agents called.',
 					),
 					'page_views_recorded' => array(
-						'type'        => 'boolean',
-						'description' => 'Whether ordinary HTML page views by recognized AI crawlers are recorded alongside the agent-facing surfaces. When false, an agent that visited the site but never asked for markdown or llms.txt leaves no trace at all, so the log cannot be read as a share of agent traffic — only as a record of who used the agent-facing surfaces.',
+						'type'        => 'string',
+						'enum'        => array( 'off', 'agents', 'all' ),
+						'description' => 'How much ordinary HTML page-view traffic is recorded, which decides what a share of this log can legitimately be compared against. "off": only requests for agent-facing files appear, so no share is meaningful. "agents": page views are recorded for recognized AI crawlers only — a correct denominator for those, and a **badly skewed one for everybody else**, because an unrecognized client\'s agent-file requests are recorded while its page views are not, making anything unbranded look as though it reads nothing but agent-facing files. "all": every page view is recorded, including human traffic, so shares are comparable across every client. Check this before computing any percentage from these counts.',
 					),
 					'retention_limit'     => array(
 						'type'        => 'integer',
@@ -531,6 +538,16 @@ function mmsar_register_abilities() {
 					'throttle_seconds'    => array(
 						'type'        => 'integer',
 						'description' => 'The same agent, surface and IP is recorded at most once per this many seconds. Counts are therefore a lower bound on requests and should be read as reach, not volume.',
+					),
+					'client_types'        => array(
+						'type'        => 'object',
+						'description' => 'Request counts by what kind of software made them, over the whole log. "crawler" declared a known crawler name; "browser" sent a signature only a real browser engine produces; "http" is a script, CLI or agent fetch tool; "unrecorded" predates the check and cannot be classified retroactively, because the headers were never stored. **The browser count is a denominator, not agent traffic.** It exists so shares can be computed honestly, and those entries are excluded from the list unless client is "browser" or "all". A browser signature identifies software, not a person: an agent driving a headless Chrome sends exactly what a reader does.',
+						'properties'  => array(
+							'crawler'    => array( 'type' => 'integer' ),
+							'browser'    => array( 'type' => 'integer' ),
+							'http'       => array( 'type' => 'integer' ),
+							'unrecorded' => array( 'type' => 'integer' ),
+						),
 					),
 					'verification'        => array(
 						'type'        => 'object',
@@ -650,6 +667,11 @@ function mmsar_register_abilities() {
 									'description' => 'What was asked for within the surface — a 404 path, an MCP method, or the permalink path of the post served on a Markdown surface. Empty string on surfaces where the surface name is the whole request.',
 								),
 								'ip'          => array( 'type' => 'string' ),
+								'client_type' => array(
+									'type'        => 'string',
+									'enum'        => array( '', 'crawler', 'browser', 'http' ),
+									'description' => 'What kind of software made the request. Empty on entries recorded before 1.26.0.',
+								),
 								'verified'    => array(
 									'type'        => 'string',
 									'enum'        => array( '', 'verified', 'failed', 'unverifiable', 'unclaimed', 'nodns' ),
@@ -682,6 +704,7 @@ function mmsar_register_abilities() {
 				$limit        = max( 1, min( 500, $limit ) );
 				$offset       = isset( $input['offset'] ) ? absint( $input['offset'] ) : 0;
 				$verified     = isset( $input['verified'] ) ? sanitize_key( $input['verified'] ) : '';
+				$client       = isset( $input['client'] ) ? sanitize_key( $input['client'] ) : '';
 
 				// Decide a few identities before reading, so a caller that keeps asking gradually
 				// verifies the log rather than being told forever that everything is pending. Same
@@ -694,7 +717,7 @@ function mmsar_register_abilities() {
 
 				$result = array(
 					'logging_enabled'     => MMSAR_Agent_Log::is_active(),
-					'page_views_recorded' => '1' === get_option( 'mmsar_agent_log_pages', '' ),
+					'page_views_recorded' => MMSAR_Agent_Log::page_view_mode(),
 					'retention_limit'     => MMSAR_Agent_Log::get_limit(),
 					'throttle_seconds'    => MMSAR_Agent_Log::THROTTLE,
 					'total'               => $summary['total'],
@@ -713,6 +736,7 @@ function mmsar_register_abilities() {
 						'first_checked'   => $verification['verified_first'],
 						'last_checked'    => $verification['verified_last'],
 					),
+					'client_types'        => MMSAR_Agent_Log::get_client_type_counts(),
 					'by_agent'            => $summary['by_agent'],
 					'by_surface'          => $summary['by_surface'],
 					'by_detail'           => $summary['by_detail'],
@@ -723,7 +747,7 @@ function mmsar_register_abilities() {
 					return $result;
 				}
 
-				$entries            = MMSAR_Agent_Log::get_entries( $limit, $offset, $verified );
+				$entries            = MMSAR_Agent_Log::get_entries( $limit, $offset, $verified, $client );
 				$result['entries']  = $entries;
 				$result['returned'] = count( $entries );
 				$result['limit']    = $limit;

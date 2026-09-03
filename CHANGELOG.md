@@ -2,6 +2,22 @@
 
 All notable changes to Make My Site Agent-Ready.
 
+## 1.26.0 — 2026-09-04
+
+- **New: every entry records what kind of client made the request.** A declared crawler, a real browser engine, or a script or fetch tool. The distinction comes from headers a browser cannot avoid sending, chiefly the `Sec-Fetch-*` set, which no fetch tool sends. An agent using a fetch tool is therefore recorded as a script even when it borrows a browser's user-agent string, which is the case that matters.
+- **New:** a Client column and filter on the Agent Log screen, a `client` filter and `client_types` counts on the `get-agent-log` ability, and a `client_type` column on the CSV export.
+- **Browser page views are hidden by default.** This is an agent log, and once every page view is recorded a screen listing them all shows mostly people. Those entries are still recorded, because they are the denominator every share is computed against; they are one click away under Browsers or Everything.
+- **What this does not do:** tell people from machines. An agent driving a real headless Chrome sends exactly what a reader does and is indistinguishable here. It separates browser engines from HTTP clients, which is a different and more answerable question.
+- **Dev:** log schema bumped to version 4. Entries recorded before this release cannot be classified retroactively, because the headers were never stored, and show as not recorded.
+
+## 1.25.0 — 2026-09-04
+
+- **New: the agent log can record every page view, not only those from recognized crawlers.** The page-view setting is now a three-way choice: off, recognized AI agents only (what the old checkbox did), or every page view including human traffic. The middle option quietly skewed every percentage taken from this log — an unrecognized client's requests for agent-facing files were recorded while its ordinary page views were not, so anything unbranded appeared to read nothing else. On one twelve-day sample that made agent-surface activity look 3.6 times higher than it was.
+- **New:** page views record which page was requested, so "read as HTML" and "pulled as Markdown" are directly comparable for the same article.
+- **Privacy:** page views from user-agents that are not recognized crawlers store the caller's network rather than its full address — 203.0.113.4 becomes 203.0.113.0, and IPv6 keeps its first four groups. Recognized crawlers keep their full address, which is what identity verification needs. The five-minute throttle still works off the real address, which never reaches the database.
+- The recorded page is always resolved from the request, never taken from the URL as typed: a search is stored as "(search)" and never the search term, a query string is discarded, and a 404 writes no page-view entry because the 404 surfaces already record it.
+- **Before switching this on for a busy site, set a retention limit on the Agent Log screen.** It records one entry per visitor, per page, per five minutes, and the default keeps everything.
+
 ## 1.24.4 — 2026-09-03
 
 - **Fix: No DNS entries are retried automatically, so the re-check button stops asking.** *No DNS* was documented as the retryable verdict, but nothing actually retried it — the only way to reopen one was the button, which meant an address with no reverse record left a "Re-check 1" button on screen permanently, doing nothing each time it was pressed. The ordinary verification pass now picks up any *No DNS* entry older than a day, so a resolver problem repairs itself quietly and a genuinely unresolvable address stops asking for attention.

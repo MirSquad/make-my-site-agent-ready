@@ -237,7 +237,7 @@ class MMSAR_Agent_Log_Page {
 		// them in the site's timezone, and a bare "logged_at" would leave a reader comparing an
 		// exported row against the screen with no way to tell which one they were holding.
 		// Appended, never reordered: the column order is documented and something is parsing it.
-		fputcsv( $handle, array( 'logged_at_utc', 'agent', 'surface', 'detail', 'ip', 'verified', 'verified_at_utc' ) );
+		fputcsv( $handle, array( 'logged_at_utc', 'agent', 'surface', 'detail', 'ip', 'verified', 'verified_at_utc', 'client_type' ) );
 
 		$cursor = 0;
 		do {
@@ -254,6 +254,7 @@ class MMSAR_Agent_Log_Page {
 						self::csv_cell( isset( $row['ip'] ) ? $row['ip'] : '' ),
 						self::csv_cell( isset( $row['verified'] ) ? $row['verified'] : '' ),
 						self::csv_cell( isset( $row['verified_at'] ) ? (string) $row['verified_at'] : '' ),
+						self::csv_cell( isset( $row['client_type'] ) ? $row['client_type'] : '' ),
 					)
 				);
 				$cursor = (int) $row['id'];
@@ -318,6 +319,23 @@ class MMSAR_Agent_Log_Page {
 	}
 
 	/**
+	 * The requested client-type filter.
+	 *
+	 * Defaults to excluding browser page views. This log exists to show what agents did, and once
+	 * every page view is recorded a screen that lists them all shows mostly people. The rows are
+	 * kept because they are the denominator every share is computed against; they are just not what
+	 * the screen opens on.
+	 *
+	 * @return string A client type, 'all', or '' for the agent-only default.
+	 */
+	private static function current_client() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only filtering of an admin screen.
+		$requested = isset( $_GET['mmsar_client'] ) ? sanitize_key( wp_unslash( $_GET['mmsar_client'] ) ) : '';
+		$allowed   = array_merge( array( 'all' ), MMSAR_Agent_Log::client_types() );
+		return in_array( $requested, $allowed, true ) ? $requested : '';
+	}
+
+	/**
 	 * Render the page.
 	 *
 	 * @return void
@@ -333,11 +351,12 @@ class MMSAR_Agent_Log_Page {
 		MMSAR_Agent_Log_Verify::run_batch();
 
 		$verdict = self::current_verdict();
+		$client  = self::current_client();
 		$total   = MMSAR_Agent_Log::count_entries();
-		$shown   = '' === $verdict ? $total : MMSAR_Agent_Log::count_entries_verified( $verdict );
+		$shown   = MMSAR_Agent_Log::count_filtered( $verdict, $client );
 		$pages   = max( 1, (int) ceil( $shown / self::PER_PAGE ) );
 		$paged   = self::current_page( $pages );
-		$entries = MMSAR_Agent_Log::get_entries( self::PER_PAGE, ( $paged - 1 ) * self::PER_PAGE, $verdict );
+		$entries = MMSAR_Agent_Log::get_entries( self::PER_PAGE, ( $paged - 1 ) * self::PER_PAGE, $verdict, $client );
 
 		echo '<div class="wrap">';
 		echo '<h1>' . esc_html__( 'Agent Log', 'make-my-site-agent-ready' ) . '</h1>';
@@ -416,7 +435,19 @@ class MMSAR_Agent_Log_Page {
 			return;
 		}
 
-		if ( '' === $verdict ) {
+		if ( '' === $verdict && $shown !== $total ) {
+			printf(
+				'<p class="description">%s</p>',
+				esc_html(
+					sprintf(
+						/* translators: 1: number of agent entries shown, 2: total entries in the log */
+						__( 'Showing %1$s agent entries. Browser page views are recorded as the denominator and hidden here; %2$s entries in total.', 'make-my-site-agent-ready' ),
+						number_format_i18n( $shown ),
+						number_format_i18n( $total )
+					)
+				)
+			);
+		} elseif ( '' === $verdict ) {
 			printf(
 				'<p class="description">%s</p>',
 				esc_html(
@@ -447,6 +478,7 @@ class MMSAR_Agent_Log_Page {
 		echo '<th>' . esc_html__( 'Agent', 'make-my-site-agent-ready' ) . '</th>';
 		echo '<th>' . esc_html__( 'Requested', 'make-my-site-agent-ready' ) . '</th>';
 		echo '<th>' . esc_html__( 'Details', 'make-my-site-agent-ready' ) . '</th>';
+		echo '<th>' . esc_html__( 'Client', 'make-my-site-agent-ready' ) . '</th>';
 		echo '<th>' . esc_html__( 'Identity', 'make-my-site-agent-ready' ) . '</th>';
 		echo '<th>' . esc_html__( 'IP', 'make-my-site-agent-ready' ) . '</th>';
 		echo '</tr></thead><tbody>';
@@ -460,6 +492,9 @@ class MMSAR_Agent_Log_Page {
 			echo '<td>' . esc_html( isset( $entry['surface'] ) ? $entry['surface'] : '—' ) . '</td>';
 			$detail = isset( $entry['detail'] ) ? (string) $entry['detail'] : '';
 			echo '<td>' . ( '' === $detail ? '<span style="color:#8c8f94;">—</span>' : '<code>' . esc_html( $detail ) . '</code>' ) . '</td>';
+			$ctype = isset( $entry['client_type'] ) ? (string) $entry['client_type'] : '';
+			echo '<td><span style="font-size:11px;color:' . ( MMSAR_Agent_Log::CLIENT_BROWSER === $ctype ? '#8c8f94' : 'inherit' ) . ';">'
+				. esc_html( MMSAR_Agent_Log::client_type_label( $ctype ) ) . '</span></td>';
 			echo '<td>' . wp_kses_post( self::verdict_badge( $entry ) ) . '</td>';
 			echo '<td><code>' . esc_html( isset( $entry['ip'] ) ? $entry['ip'] : '' ) . '</code></td>';
 			echo '</tr>';
@@ -477,6 +512,7 @@ class MMSAR_Agent_Log_Page {
 						'base'      => admin_url(
 							'options-general.php?page=' . self::SLUG
 							. ( '' === $verdict ? '' : '&mmsar_verified_filter=' . rawurlencode( $verdict ) )
+							. ( '' === $client ? '' : '&mmsar_client=' . rawurlencode( $client ) )
 							. '&paged=%#%'
 						),
 						'format'    => '',
@@ -677,6 +713,42 @@ class MMSAR_Agent_Log_Page {
 		}
 		echo wp_kses_post( implode( ' | ', $links ) );
 		echo '</span>';
+
+		$ccounts = MMSAR_Agent_Log::get_client_type_counts();
+		if ( $ccounts[ MMSAR_Agent_Log::CLIENT_BROWSER ] > 0 ) {
+			$current_client = self::current_client();
+			$copts          = array(
+				''                              => __( 'Agents only', 'make-my-site-agent-ready' ),
+				MMSAR_Agent_Log::CLIENT_BROWSER => __( 'Browsers', 'make-my-site-agent-ready' ),
+				'all'                           => __( 'Everything', 'make-my-site-agent-ready' ),
+			);
+			$clinks         = array();
+			foreach ( $copts as $value => $label ) {
+				$url      = '' === $value
+					? admin_url( 'options-general.php?page=' . self::SLUG )
+					: add_query_arg(
+						array(
+							'page'         => self::SLUG,
+							'mmsar_client' => $value,
+						),
+						admin_url( 'options-general.php' )
+					);
+				$clinks[] = $value === $current_client
+					? '<strong>' . esc_html( $label ) . '</strong>'
+					: '<a href="' . esc_url( $url ) . '">' . esc_html( $label ) . '</a>';
+			}
+			echo '<span style="display:inline-block;margin-left:1.2rem;">';
+			echo wp_kses_post( implode( ' | ', $clinks ) );
+			echo '</span>';
+
+			echo '<p class="description" style="margin:.7rem 0 0;">';
+			printf(
+				/* translators: %s: number of browser page views */
+				esc_html__( '%s page views came from a browser engine and are hidden by default. They are recorded so shares have a denominator, not because they are agent traffic. A browser signature means the request came from a real browser, which is usually a person and is also what an agent driving a headless Chrome looks like.', 'make-my-site-agent-ready' ),
+				'<strong>' . esc_html( number_format_i18n( $ccounts[ MMSAR_Agent_Log::CLIENT_BROWSER ] ) ) . '</strong>'
+			);
+			echo '</p>';
+		}
 
 		echo '</div>';
 	}
