@@ -655,6 +655,44 @@ class MMSAR_Agent_Log {
 	}
 
 	/**
+	 * Rows still awaiting an identity check, grouped by the crawler they claimed.
+	 *
+	 * The verification panel on the log screen reports one total, which answers "is there a
+	 * backlog" but not "a backlog of what". On a dashboard widget the second question is the more
+	 * useful one: fifty pending rows all claiming one crawler is a different situation from fifty
+	 * spread across twenty, and it is the difference between pressing the button and going to look.
+	 *
+	 * Counts rows, not addresses, so the numbers here add up to the pending total shown elsewhere
+	 * rather than to the number of addresses a pass would resolve.
+	 *
+	 * @param int $limit How many of the most frequent agents to return.
+	 * @return array<string, int> Agent name => pending rows, largest first.
+	 */
+	public static function pending_by_agent( $limit = 5 ) {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached count would be stale.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT agent, COUNT(*) AS requests FROM %i WHERE verified = %s GROUP BY agent ORDER BY requests DESC LIMIT %d',
+				self::table(),
+				MMSAR_Agent_Log_Verify::PENDING,
+				max( 1, (int) $limit )
+			),
+			ARRAY_A
+		);
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$agent = ( isset( $row['agent'] ) && '' !== $row['agent'] )
+				? (string) $row['agent']
+				: __( 'Unnamed', 'make-my-site-agent-ready' );
+
+			$out[ $agent ] = isset( $row['requests'] ) ? (int) $row['requests'] : 0;
+		}
+		return $out;
+	}
+
+	/**
 	 * The distinct agents a re-check could answer differently.
 	 *
 	 * @return string[]

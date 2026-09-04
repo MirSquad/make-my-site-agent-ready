@@ -2,6 +2,20 @@
 
 All notable changes to Make My Site Agent-Ready.
 
+## 1.30.1 — 2026-09-04
+
+- **Changed: the two dashboard widgets are now one.** 1.29.1 added a second widget for the identity-check backlog, and it overlapped the existing one on three things — the forged-identity count, the "log is switched off" notice, and the link through to the full log — so a dashboard with both showed the same facts twice. The single **Agent Log** widget carries the forged count, anything waiting on an identity check with the *Verify now* and *Re-check* buttons, and the list of recent requests, in that order.
+- **The surviving widget keeps the `mmsar_agent_log` id it has always had**, so an existing install keeps its dashboard position and Screen Options state. Only the title changed, from "Recent Agent Requests" to "Agent Log", because the widget now does more than list recent requests.
+- Unchanged and deliberate: the widget still never runs an identity check on load. It counts only, and its buttons post to the same capability-gated handlers the Agent Log screen uses.
+
+## 1.29.1 — 2026-09-04
+
+- **New: an "Agent Identity Checks" dashboard widget.** It shows how many logged requests are still waiting on an identity check, broken down by the crawler each one claimed to be, and carries the *Verify now* and *Re-check* buttons so a backlog can be cleared from the dashboard instead of from the log screen. Pressing a button returns you to the dashboard with the result, rather than dropping you on a different page.
+- **The widget never verifies anything on load.** Identity checks make DNS lookups that can block for seconds, and the dashboard is the first screen an administrator opens. It reads counts only; the checks still run exclusively when a button is pressed, on the same capability-gated handler the log screen uses.
+- **Changed: the agent request log's toggle now says what switching it off does.** New entries stop being recorded and nothing already recorded is deleted — the log stays readable and exportable until it is cleared deliberately. That was already how it behaved; nothing said so.
+- **Fixed: the same toggle claimed that page views are never recorded.** That stopped being true in 1.25.0, when the page-view setting was added, and the description was never updated.
+- **Changed:** with the log switched off, the Agent Log screen now names how many entries are being kept and that only clearing the log removes them.
+
 ## 1.28.0 — 2026-09-04
 
 - **New: a real filter bar above the log.** Checkbox groups for surface, client and identity, so views can be combined: agent documents *and* Markdown, read by crawlers *and* browsers. It is a plain GET form, so every view is a URL that can be bookmarked or sent to someone.

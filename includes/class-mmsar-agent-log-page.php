@@ -134,22 +134,48 @@ class MMSAR_Agent_Log_Page {
 			wp_die( esc_html__( 'Security check failed.', 'make-my-site-agent-ready' ) );
 		}
 
+		// Read here rather than in the redirect helper: the nonce check above is in this function,
+		// which is what lets the sniff see a $_POST read as guarded.
+		$return = isset( $_POST['mmsar_return'] ) ? sanitize_key( wp_unslash( $_POST['mmsar_return'] ) ) : '';
+
 		$done = MMSAR_Agent_Log_Verify::run_batch(
 			MMSAR_Agent_Log_Verify::BUTTON_IPS,
 			MMSAR_Agent_Log_Verify::BUTTON_BUDGET
 		);
 
-		wp_safe_redirect(
-			add_query_arg(
-				array(
-					'page'               => self::SLUG,
-					'mmsar_verified'     => (int) $done['rows'],
-					'mmsar_verified_ips' => (int) $done['ips'],
-					'mmsar_verify_done'  => empty( $done['exhausted'] ) ? '0' : '1',
-				),
-				admin_url( 'options-general.php' )
-			)
+		self::redirect_after_pass(
+			array(
+				'mmsar_verified'     => (int) $done['rows'],
+				'mmsar_verified_ips' => (int) $done['ips'],
+				'mmsar_verify_done'  => empty( $done['exhausted'] ) ? '0' : '1',
+			),
+			'dashboard' === $return
 		);
+	}
+
+	/**
+	 * Sends the browser back to wherever the button was pressed.
+	 *
+	 * The verify and re-check buttons exist in two places as of 1.29.0 — this screen and the
+	 * dashboard widget — and always returning to the log screen would answer the question by
+	 * moving the person who asked it.
+	 *
+	 * The destination is chosen from a fixed pair rather than taken from the request. A posted URL
+	 * to redirect to is an open redirect waiting to happen even behind `wp_safe_redirect()`, and
+	 * there are only ever two answers, so a flag is enough.
+	 *
+	 * @param array $args         Query args describing what the pass did.
+	 * @param bool  $to_dashboard Whether the button was pressed on the dashboard widget.
+	 * @return void
+	 */
+	private static function redirect_after_pass( $args, $to_dashboard ) {
+		if ( $to_dashboard ) {
+			wp_safe_redirect( add_query_arg( $args, admin_url( 'index.php' ) ) );
+			exit;
+		}
+
+		$args['page'] = self::SLUG;
+		wp_safe_redirect( add_query_arg( $args, admin_url( 'options-general.php' ) ) );
 		exit;
 	}
 
@@ -177,6 +203,9 @@ class MMSAR_Agent_Log_Page {
 			wp_die( esc_html__( 'Security check failed.', 'make-my-site-agent-ready' ) );
 		}
 
+		// See handle_verify(): read while the nonce check is still in scope.
+		$return = isset( $_POST['mmsar_return'] ) ? sanitize_key( wp_unslash( $_POST['mmsar_return'] ) ) : '';
+
 		foreach ( MMSAR_Agent_Log::get_undecided_pairs() as $pair ) {
 			MMSAR_Agent_Log_Verify::forget(
 				isset( $pair['agent'] ) ? $pair['agent'] : '',
@@ -203,18 +232,14 @@ class MMSAR_Agent_Log_Page {
 			}
 		}
 
-		wp_safe_redirect(
-			add_query_arg(
-				array(
-					'page'               => self::SLUG,
-					'mmsar_rechecked'    => (int) $reset,
-					'mmsar_changed'      => (int) $changed,
-					'mmsar_verified_ips' => (int) $done['ips'],
-				),
-				admin_url( 'options-general.php' )
-			)
+		self::redirect_after_pass(
+			array(
+				'mmsar_rechecked'    => (int) $reset,
+				'mmsar_changed'      => (int) $changed,
+				'mmsar_verified_ips' => (int) $done['ips'],
+			),
+			'dashboard' === $return
 		);
-		exit;
 	}
 
 	/**
@@ -568,6 +593,17 @@ class MMSAR_Agent_Log_Page {
 				esc_html__( 'The agent request log is switched off, so nothing new is being recorded. Turn it on under %s.', 'make-my-site-agent-ready' ),
 				'<a href="' . esc_url( admin_url( 'options-general.php?page=make-my-site-agent-ready' ) ) . '">' . esc_html__( 'Settings > Agent-Ready', 'make-my-site-agent-ready' ) . '</a>'
 			);
+			// Switching the log off is not a deletion, and the person who has just done it is the
+			// one most likely to assume it was. Say so here, with the count, rather than leaving
+			// them to infer it from the table still being on screen.
+			if ( $total > 0 ) {
+				echo ' ';
+				printf(
+					/* translators: %s: number of entries already recorded */
+					esc_html( _n( 'The %s entry already recorded is kept: switching the log off never deletes anything. It stays readable and exportable here until you clear it yourself.', 'The %s entries already recorded are kept: switching the log off never deletes anything. They stay readable and exportable here until you clear the log yourself.', $total, 'make-my-site-agent-ready' ) ),
+					'<strong>' . esc_html( number_format_i18n( $total ) ) . '</strong>'
+				);
+			}
 			echo '</p></div>';
 		}
 

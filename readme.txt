@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.28.0
+Stable tag: 1.30.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,6 +112,15 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.30.1 - 2026-09-04 =
+* Changed: the two dashboard widgets are now one. 1.29.1 added a second widget for the identity-check backlog, which duplicated the first one's forged-identity count, its "log is switched off" notice and its link to the full log. The single "Agent Log" widget shows the forged count, anything waiting on an identity check with the Verify and Re-check buttons, and the recent requests list.
+* The widget keeps its existing id, so its position on your dashboard and its Screen Options state are unchanged.
+
+= 1.29.1 - 2026-09-04 =
+* New: an "Agent Identity Checks" dashboard widget. It shows how many logged requests are still waiting on an identity check, broken down by the crawler each one claimed to be, and carries the Verify and Re-check buttons so a backlog can be cleared without opening the log screen. It only counts on load — the checks themselves still run only when you press the button.
+* The agent request log's description now says what switching it off actually does: new entries stop, and nothing already recorded is deleted. It also no longer claims that page views are never recorded, which stopped being true in 1.25.0 when the page-view setting was added.
+* The Agent Log screen now says, when the log is off, how many entries are being kept and that only clearing the log removes them.
 
 = 1.28.0 - 2026-09-04 =
 * **New: a real filter bar above the log.** Checkbox groups for surface, client and identity, so views can be combined: agent documents *and* Markdown, read by crawlers *and* browsers. It is a plain GET form, so every view is a URL that can be bookmarked or sent to someone.
