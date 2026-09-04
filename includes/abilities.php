@@ -494,6 +494,12 @@ function mmsar_register_abilities() {
 						'default'     => false,
 						'description' => 'Return the aggregates and omit individual entries. The aggregates carry no IP addresses, so this is also the way to read the log without handling them.',
 					),
+					'surface'      => array(
+						'type'        => 'string',
+						'enum'        => array( '', 'docs', 'markdown', 'html', 'notfound' ),
+						'default'     => '',
+						'description' => 'Restrict entries by what kind of surface was requested. "docs" is the agent-facing documents: llms.txt and its scoped variants, api-catalog, the MCP descriptors, Agent Skills and SKILL.md, openapi.json, auth.md, ai-catalog, schema-map, nlweb and ?mode=agent. "markdown" is the .md mirrors and content-negotiated Markdown. "html" is ordinary page views. "notfound" is the agent 404s. Empty string is all of them. Combine with client="crawler" or a verified filter to ask the question this log exists for: did anything real read the agent-facing documents.',
+					),
 					'client'       => array(
 						'type'        => 'string',
 						'enum'        => array( '', 'crawler', 'browser', 'http', 'all' ),
@@ -538,6 +544,16 @@ function mmsar_register_abilities() {
 					'throttle_seconds'    => array(
 						'type'        => 'integer',
 						'description' => 'The same agent, surface and IP is recorded at most once per this many seconds. Counts are therefore a lower bound on requests and should be read as reach, not volume.',
+					),
+					'surface_categories'  => array(
+						'type'        => 'object',
+						'description' => 'Request counts by what kind of surface was asked for, over the whole log and across every client. "docs" is the agent-facing documents, "markdown" the .md mirrors and negotiated Markdown, "html" ordinary page views, "notfound" the agent 404s. Reading docs and markdown against html is the headline this log exists to produce, but do it per client class rather than in aggregate: pass surface with client="crawler", or with a verified filter, since unbranded and forged traffic behave nothing like real crawlers.',
+						'properties'  => array(
+							'docs'     => array( 'type' => 'integer' ),
+							'markdown' => array( 'type' => 'integer' ),
+							'html'     => array( 'type' => 'integer' ),
+							'notfound' => array( 'type' => 'integer' ),
+						),
 					),
 					'client_types'        => array(
 						'type'        => 'object',
@@ -694,6 +710,10 @@ function mmsar_register_abilities() {
 						'type'        => 'string',
 						'description' => 'The verification filter that was applied to entries, echoed back. Empty string means none was.',
 					),
+					'surface'             => array(
+						'type'        => 'string',
+						'description' => 'The surface-category filter that was applied to entries, echoed back.',
+					),
 				),
 			),
 			'permission_callback' => fn() => current_user_can( 'manage_options' ),
@@ -705,6 +725,7 @@ function mmsar_register_abilities() {
 				$offset       = isset( $input['offset'] ) ? absint( $input['offset'] ) : 0;
 				$verified     = isset( $input['verified'] ) ? sanitize_key( $input['verified'] ) : '';
 				$client       = isset( $input['client'] ) ? sanitize_key( $input['client'] ) : '';
+				$category     = isset( $input['surface'] ) ? sanitize_key( $input['surface'] ) : '';
 
 				// Decide a few identities before reading, so a caller that keeps asking gradually
 				// verifies the log rather than being told forever that everything is pending. Same
@@ -737,6 +758,7 @@ function mmsar_register_abilities() {
 						'last_checked'    => $verification['verified_last'],
 					),
 					'client_types'        => MMSAR_Agent_Log::get_client_type_counts(),
+					'surface_categories'  => MMSAR_Agent_Log::get_category_counts(),
 					'by_agent'            => $summary['by_agent'],
 					'by_surface'          => $summary['by_surface'],
 					'by_detail'           => $summary['by_detail'],
@@ -747,12 +769,21 @@ function mmsar_register_abilities() {
 					return $result;
 				}
 
-				$entries            = MMSAR_Agent_Log::get_entries( $limit, $offset, $verified, $client );
+				$entries            = MMSAR_Agent_Log::get_entries(
+					$limit,
+					$offset,
+					array(
+						'verdicts'   => '' === $verified ? array() : array( $verified ),
+						'clients'    => 'all' === $client ? array_merge( MMSAR_Agent_Log::client_types(), array( 'unrecorded' ) ) : ( '' === $client ? array() : array( $client ) ),
+						'categories' => '' === $category ? array() : array( $category ),
+					)
+				);
 				$result['entries']  = $entries;
 				$result['returned'] = count( $entries );
 				$result['limit']    = $limit;
 				$result['offset']   = $offset;
 				$result['verified'] = $verified;
+				$result['surface']  = $category;
 
 				return $result;
 			},

@@ -230,64 +230,100 @@ class MMSAR_Agent_Log {
 	}
 
 	/**
-	 * One page of entries, newest first.
+	 * Normalizes a filter set into the three comma-joined strings the queries take.
 	 *
-	 * @param int    $per_page Rows per page.
-	 * @param int    $offset   Rows to skip.
-	 * @param string $verified Restrict to one verification verdict. Empty string means no filter,
-	 *                         which is why 'pending' rather than '' addresses the unchecked rows.
-	 * @param string $client   Restrict by client type: a CLIENT_* value to match one, 'all' for
-	 *                         everything, or '' (the default) for everything except browser page
-	 *                         views.
-	 * @return array[] Entries as associative arrays.
+	 * Multi-select is done with `FIND_IN_SET` against a validated, comma-joined list rather than a
+	 * generated `IN (…)`. One placeholder covers any number of selected values, which keeps the SQL
+	 * a fixed string in every combination — the same reason the rest of this class avoids assembling
+	 * clauses. Every value is checked against a whitelist here, and none of them contains a comma.
+	 *
+	 * Empty means "no filter on that axis", with one deliberate exception: an empty client list
+	 * excludes browser page views. This is an agent log, and once every page view is recorded a
+	 * default that lists them all answers a different question. Tick Browsers to see them.
+	 *
+	 * @param array $filters Keys 'verdicts', 'clients', 'categories', each an array of values.
+	 * @return array{verdicts: string, clients: string, categories: string}
 	 */
-	public static function get_entries( $per_page = 50, $offset = 0, $verified = '', $client = '' ) {
-		$verdict = self::verified_where( $verified );
-		$verdict = null === $verdict ? '' : $verdict;
+	private static function normalize_filters( $filters ) {
+		$filters = is_array( $filters ) ? $filters : array();
 
-		// Browser page views are recorded for the denominator, not for reading. Excluding them by
-		// default is what keeps this an agent log rather than a visitor list: the question it exists
-		// to answer is what agents did, and a screen showing mostly people answers a different one.
-		$is     = in_array( $client, self::client_types(), true ) ? $client : '';
-		$is_not = ( '' === $is && 'all' !== $client ) ? self::CLIENT_BROWSER : '';
+		$verdicts = array_values(
+			array_intersect(
+				array_map( 'strval', (array) ( $filters['verdicts'] ?? array() ) ),
+				array_merge( MMSAR_Agent_Log_Verify::verdicts(), array( 'pending' ) )
+			)
+		);
 
-		return self::query_entries( $per_page, $offset, $verdict, $is, $is_not );
+		$clients = array_values(
+			array_intersect(
+				array_map( 'strval', (array) ( $filters['clients'] ?? array() ) ),
+				array_merge( self::client_types(), array( 'unrecorded' ) )
+			)
+		);
+		if ( ! $clients ) {
+			$clients = array( self::CLIENT_CRAWLER, self::CLIENT_HTTP, 'unrecorded' );
+		}
+		// Every client type ticked is the same as no client filter, and saying so lets the query
+		// skip the test entirely.
+		if ( count( $clients ) === count( self::client_types() ) + 1 ) {
+			$clients = array();
+		}
+
+		$categories = array_values(
+			array_intersect(
+				array_map( 'strval', (array) ( $filters['categories'] ?? array() ) ),
+				self::categories()
+			)
+		);
+		if ( count( $categories ) === count( self::categories() ) ) {
+			$categories = array();
+		}
+
+		return array(
+			'verdicts'   => implode( ',', $verdicts ),
+			'clients'    => implode( ',', $clients ),
+			'categories' => implode( ',', $categories ),
+		);
 	}
 
 	/**
-	 * Runs the paged entry query.
+	 * One page of entries, newest first.
 	 *
-	 * The SQL is one fixed string with every value a placeholder, rather than a WHERE clause
-	 * assembled from fragments. A generated clause is safe when the fragments are literals, but it
-	 * cannot be *read* as safe without tracing where each one came from, and the WordPress.org
-	 * review re-scans without honouring inline suppressions. Passing an empty string disables a
-	 * condition instead: `%s = ''` short-circuits it, so one static query serves every combination.
-	 *
-	 * @param int    $per_page Rows per page.
-	 * @param int    $offset   Rows to skip.
-	 * @param string $verdict  Verdict to match, or '' for any.
-	 * @param string $is       Client type to match, or '' for any.
-	 * @param string $is_not   Client type to exclude, or '' for none.
-	 * @return array[]
+	 * @param int   $per_page Rows per page.
+	 * @param int   $offset   Rows to skip.
+	 * @param array $filters  Filter set, as accepted by normalize_filters().
+	 * @return array[] Entries as associative arrays.
 	 */
-	private static function query_entries( $per_page, $offset, $verdict, $is, $is_not ) {
+	public static function get_entries( $per_page = 50, $offset = 0, $filters = array() ) {
 		global $wpdb;
+		$f         = self::normalize_filters( $filters );
+		$like_html = $wpdb->esc_like( 'HTML page view' ) . '%';
+		$like_md   = $wpdb->esc_like( 'Markdown' ) . '%';
+		$like_404  = $wpdb->esc_like( '404' ) . '%';
+
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would show a stale log.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT logged_at, surface, detail, agent, ip, verified, verified_at, client_type
 				FROM %i
-				WHERE ( %s = '' OR verified = %s )
-				  AND ( %s = '' OR client_type = %s )
-				  AND ( %s = '' OR client_type <> %s )
+				WHERE ( %s = '' OR FIND_IN_SET( IF( verified = '', 'pending', verified ), %s ) > 0 )
+				  AND ( %s = '' OR FIND_IN_SET( IF( client_type = '', 'unrecorded', client_type ), %s ) > 0 )
+				  AND ( %s = '' OR FIND_IN_SET(
+				        CASE WHEN surface LIKE %s THEN 'html'
+				             WHEN surface LIKE %s THEN 'markdown'
+				             WHEN surface LIKE %s THEN 'notfound'
+				             ELSE 'docs' END, %s ) > 0 )
 				ORDER BY id DESC LIMIT %d OFFSET %d",
 				self::table(),
-				$verdict,
-				$verdict,
-				$is,
-				$is,
-				$is_not,
-				$is_not,
+				$f['verdicts'],
+				$f['verdicts'],
+				$f['clients'],
+				$f['clients'],
+				$f['categories'],
+				$like_html,
+				$like_md,
+				$like_404,
+				$f['categories'],
 				absint( $per_page ),
 				absint( $offset )
 			),
@@ -297,47 +333,56 @@ class MMSAR_Agent_Log {
 	}
 
 	/**
-	 * Rows matching a verdict and client filter, for pagination.
+	 * Rows matching a filter set.
 	 *
-	 * @param string $verified Verdict filter, as accepted by get_entries().
-	 * @param string $client   Client filter, as accepted by get_entries().
+	 * @param array $filters Filter set, as accepted by normalize_filters().
 	 * @return int
 	 */
-	public static function count_filtered( $verified = '', $client = '' ) {
+	public static function count_filtered( $filters = array() ) {
 		global $wpdb;
-		$verdict = self::verified_where( $verified );
-		$verdict = null === $verdict ? '' : $verdict;
-
-		$is     = in_array( $client, self::client_types(), true ) ? $client : '';
-		$is_not = ( '' === $is && 'all' !== $client ) ? self::CLIENT_BROWSER : '';
+		$f         = self::normalize_filters( $filters );
+		$like_html = $wpdb->esc_like( 'HTML page view' ) . '%';
+		$like_md   = $wpdb->esc_like( 'Markdown' ) . '%';
+		$like_404  = $wpdb->esc_like( '404' ) . '%';
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
 		return (int) $wpdb->get_var(
 			$wpdb->prepare(
 				"SELECT COUNT(*) FROM %i
-				WHERE ( %s = '' OR verified = %s )
-				  AND ( %s = '' OR client_type = %s )
-				  AND ( %s = '' OR client_type <> %s )",
+				WHERE ( %s = '' OR FIND_IN_SET( IF( verified = '', 'pending', verified ), %s ) > 0 )
+				  AND ( %s = '' OR FIND_IN_SET( IF( client_type = '', 'unrecorded', client_type ), %s ) > 0 )
+				  AND ( %s = '' OR FIND_IN_SET(
+				        CASE WHEN surface LIKE %s THEN 'html'
+				             WHEN surface LIKE %s THEN 'markdown'
+				             WHEN surface LIKE %s THEN 'notfound'
+				             ELSE 'docs' END, %s ) > 0 )",
 				self::table(),
-				$verdict,
-				$verdict,
-				$is,
-				$is,
-				$is_not,
-				$is_not
+				$f['verdicts'],
+				$f['verdicts'],
+				$f['clients'],
+				$f['clients'],
+				$f['categories'],
+				$like_html,
+				$like_md,
+				$like_404,
+				$f['categories']
 			)
 		);
 	}
 
 	/**
-	 * Counts per client type across the whole log.
+	 * Request counts by client type across the whole log.
 	 *
 	 * @return array<string, int>
 	 */
 	public static function get_client_type_counts() {
 		global $wpdb;
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table.
-		$rows                 = $wpdb->get_results( $wpdb->prepare( 'SELECT client_type, COUNT(*) AS requests FROM %i GROUP BY client_type', self::table() ), ARRAY_A );
+		$rows = $wpdb->get_results(
+			$wpdb->prepare( 'SELECT client_type, COUNT(*) AS requests FROM %i GROUP BY client_type', self::table() ),
+			ARRAY_A
+		);
+
 		$counts               = array_fill_keys( self::client_types(), 0 );
 		$counts['unrecorded'] = 0;
 		foreach ( (array) $rows as $row ) {
@@ -350,44 +395,21 @@ class MMSAR_Agent_Log {
 	}
 
 	/**
-	 * Translates a requested verdict filter into the value to match, or null for no filter.
+	 * Request counts by surface category, across every client.
 	 *
-	 * The unchecked state is stored as an empty string, and an empty string is also how a caller
-	 * says "no filter", so the two need different spellings on the way in. 'pending' is the word
-	 * for the first; anything unrecognised is treated as no filter rather than as a query for a
-	 * verdict that cannot exist, which would silently return nothing.
-	 *
-	 * @param string $verified Requested filter.
-	 * @return string|null Value to match, or null to apply no filter.
+	 * @return array<string, int>
 	 */
-	private static function verified_where( $verified ) {
-		$verified = (string) $verified;
-		if ( '' === $verified ) {
-			return null;
+	public static function get_category_counts() {
+		$counts = array();
+		foreach ( self::categories() as $category ) {
+			$counts[ $category ] = self::count_filtered(
+				array(
+					'clients'    => array_merge( self::client_types(), array( 'unrecorded' ) ),
+					'categories' => array( $category ),
+				)
+			);
 		}
-		if ( 'pending' === $verified ) {
-			return MMSAR_Agent_Log_Verify::PENDING;
-		}
-		return in_array( $verified, MMSAR_Agent_Log_Verify::verdicts(), true ) ? $verified : null;
-	}
-
-	/**
-	 * Number of entries matching a verdict filter.
-	 *
-	 * @param string $verified Verdict filter, as accepted by get_entries().
-	 * @return int
-	 */
-	public static function count_entries_verified( $verified = '' ) {
-		$where = self::verified_where( $verified );
-		if ( null === $where ) {
-			return self::count_entries();
-		}
-
-		global $wpdb;
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Reading this plugin's own table; a cached count would show a stale log.
-		return (int) $wpdb->get_var(
-			$wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE verified = %s', self::table(), $where )
-		);
+		return $counts;
 	}
 
 	/**
@@ -782,38 +804,54 @@ class MMSAR_Agent_Log {
 	 * row twice or skips one. An id cursor addresses rows rather than positions, so newly appended
 	 * rows are simply not part of the walk, and the query stays fast at any depth.
 	 *
-	 * @param int $before_id Return rows with a lower id than this. 0 starts from the newest row.
-	 * @param int $limit     Maximum rows to return.
+	 * @param int   $before_id Return rows with a lower id than this. 0 starts from the newest row.
+	 * @param int   $limit     Maximum rows to return.
+	 * @param array $filters   Filter set, as accepted by normalize_filters(), so an export can be
+	 *                         restricted to what the screen is currently showing.
 	 * @return array[] Entries as associative arrays, including id.
 	 */
-	public static function get_entries_before( $before_id = 0, $limit = 500 ) {
+	public static function get_entries_before( $before_id = 0, $limit = 500, $filters = array() ) {
 		global $wpdb;
 		$before_id = absint( $before_id );
 		$limit     = absint( $limit );
+		$f         = self::normalize_filters( $filters );
+		$like_html = $wpdb->esc_like( 'HTML page view' ) . '%';
+		$like_md   = $wpdb->esc_like( 'Markdown' ) . '%';
+		$like_404  = $wpdb->esc_like( '404' ) . '%';
 
-		if ( $before_id > 0 ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would show a stale log.
-			$rows = $wpdb->get_results(
-				$wpdb->prepare(
-					'SELECT id, logged_at, surface, detail, agent, ip, verified, verified_at, client_type FROM %i WHERE id < %d ORDER BY id DESC LIMIT %d',
-					self::table(),
-					$before_id,
-					$limit
-				),
-				ARRAY_A
-			);
-		} else {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
-			$rows = $wpdb->get_results(
-				$wpdb->prepare(
-					'SELECT id, logged_at, surface, detail, agent, ip, verified, verified_at, client_type FROM %i ORDER BY id DESC LIMIT %d',
-					self::table(),
-					$limit
-				),
-				ARRAY_A
-			);
-		}
+		// A cursor of 0 means "start from the newest", expressed as an id above anything real so the
+		// same fixed statement serves the first batch and every later one.
+		$cursor = $before_id > 0 ? $before_id : PHP_INT_MAX;
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- This plugin's own table; a cached read would show a stale log.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, logged_at, surface, detail, agent, ip, verified, verified_at, client_type
+				FROM %i
+				WHERE id < %d
+				  AND ( %s = '' OR FIND_IN_SET( IF( verified = '', 'pending', verified ), %s ) > 0 )
+				  AND ( %s = '' OR FIND_IN_SET( IF( client_type = '', 'unrecorded', client_type ), %s ) > 0 )
+				  AND ( %s = '' OR FIND_IN_SET(
+				        CASE WHEN surface LIKE %s THEN 'html'
+				             WHEN surface LIKE %s THEN 'markdown'
+				             WHEN surface LIKE %s THEN 'notfound'
+				             ELSE 'docs' END, %s ) > 0 )
+				ORDER BY id DESC LIMIT %d",
+				self::table(),
+				$cursor,
+				$f['verdicts'],
+				$f['verdicts'],
+				$f['clients'],
+				$f['clients'],
+				$f['categories'],
+				$like_html,
+				$like_md,
+				$like_404,
+				$f['categories'],
+				$limit
+			),
+			ARRAY_A
+		);
 		return is_array( $rows ) ? $rows : array();
 	}
 
@@ -976,6 +1014,49 @@ class MMSAR_Agent_Log {
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- As above.
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE id <= %d', $table, (int) $cutoff ) );
+	}
+
+	/**
+	 * Surface categories, for answering "did anything read the agent-facing documents".
+	 *
+	 * Derived from the surface name rather than stored, because the plugin generates every surface
+	 * string and the three non-document families each share a fixed prefix. That keeps the SQL fully
+	 * static: three `LIKE` prefixes, and documents are what is left over. A surface added later is
+	 * therefore a document by default, which is the right way round.
+	 */
+	const CAT_DOCS     = 'docs';
+	const CAT_MARKDOWN = 'markdown';
+	const CAT_HTML     = 'html';
+	const CAT_NOTFOUND = 'notfound';
+
+	/**
+	 * Every surface category, for schemas and filters.
+	 *
+	 * @return string[]
+	 */
+	public static function categories() {
+		return array( self::CAT_DOCS, self::CAT_MARKDOWN, self::CAT_HTML, self::CAT_NOTFOUND );
+	}
+
+	/**
+	 * Human-readable label for a surface category.
+	 *
+	 * @param string $category Category value.
+	 * @return string
+	 */
+	public static function category_label( $category ) {
+		switch ( $category ) {
+			case self::CAT_DOCS:
+				return __( 'Agent documents', 'make-my-site-agent-ready' );
+			case self::CAT_MARKDOWN:
+				return __( 'Markdown', 'make-my-site-agent-ready' );
+			case self::CAT_HTML:
+				return __( 'HTML pages', 'make-my-site-agent-ready' );
+			case self::CAT_NOTFOUND:
+				return __( 'Not found', 'make-my-site-agent-ready' );
+			default:
+				return __( 'All surfaces', 'make-my-site-agent-ready' );
+		}
 	}
 
 	/**
@@ -1146,9 +1227,13 @@ class MMSAR_Agent_Log {
 	 *                                    recognise as crawlers, which are mostly people. Never
 	 *                                    affects the throttle, which always keys on the real
 	 *                                    address; see anonymize_ip().
+	 * @param string $throttle_detail     Value to use in the throttle key in place of $detail. Pass
+	 *                                    a bounded, site-derived value when $detail is caller input:
+	 *                                    the stored value stays faithful while the key stays safe.
+	 *                                    Null uses $detail itself.
 	 * @return void
 	 */
-	public static function record( $surface, $detail = '', $throttle_on_detail = false, $anonymize = false ) {
+	public static function record( $surface, $detail = '', $throttle_on_detail = false, $anonymize = false, $throttle_detail = null ) {
 		if ( ! self::is_active() ) {
 			return;
 		}
@@ -1173,8 +1258,13 @@ class MMSAR_Agent_Log {
 		// caller and unbounded, so keying on it would let anything walking a URL list write a row
 		// per request. There the row was going to be written anyway and the path is an annotation
 		// on it, which samples the pattern over days without handing a fuzzer a write primitive.
-		$throttle_detail = $throttle_on_detail ? $detail : '';
-		$key             = 'mmsar_al_' . md5( $agent . '|' . $surface . '|' . $throttle_detail . '|' . $ip );
+		// What is stored and what is throttled on are separate questions, and conflating them is why
+		// this used to refuse to store a raw URL at all. The throttle needs a *bounded* value or a
+		// caller can mint unlimited distinct keys and write a row per request; the stored value has
+		// no such constraint, because it is only ever read. A page view therefore stores the URL as
+		// requested and throttles on the page it resolved to.
+		$throttle_on = $throttle_on_detail ? ( null === $throttle_detail ? $detail : (string) $throttle_detail ) : '';
+		$key         = 'mmsar_al_' . md5( $agent . '|' . $surface . '|' . $throttle_on . '|' . $ip );
 		if ( get_transient( $key ) ) {
 			return;
 		}
@@ -1301,22 +1391,60 @@ class MMSAR_Agent_Log {
 		// storage; a recognised crawler keeps its full one, which is what verification runs against.
 		self::record(
 			'HTML page view (' . self::accept_summary() . ')',
-			self::page_view_path(),
+			self::requested_url(),
 			true,
-			! $known
+			! $known,
+			self::page_view_path()
 		);
 	}
 
 	/**
-	 * The path to record for a page view, derived from the resolved query rather than the request.
+	 * The URL as the caller actually requested it, path and query string.
 	 *
-	 * Never `REQUEST_URI`. This value goes into the throttle key, and the key is what stops a caller
-	 * writing a row per request: a search query or a junk querystring is unbounded caller input, so
-	 * keying on it would hand anyone a way to grow the table at will. Everything below comes from
-	 * WordPress resolving the request to something the site actually publishes.
+	 * Safe to *store* because storage is not the constraint: the value is escaped on the admin screen
+	 * and run through csv_cell() on export, and control characters are stripped here. It is not safe
+	 * to *throttle* on, which is a different job handled by page_view_path().
 	 *
-	 * A singular view returns the same permalink path the Markdown surfaces record, which is the
-	 * point: it makes "read as HTML" and "pulled as Markdown" directly comparable per article.
+	 * The query string is kept, so an internal search is recorded as the visitor typed it. That is
+	 * ordinary for a site's own logs and it is worth knowing about rather than discovering.
+	 *
+	 * @return string
+	 */
+	private static function requested_url() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Reading the request line for a log annotation, not a state change.
+		$uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+		if ( '' === $uri ) {
+			return '/';
+		}
+
+		$parts = wp_parse_url( $uri );
+		$path  = isset( $parts['path'] ) ? (string) $parts['path'] : '';
+		$query = isset( $parts['query'] ) ? (string) $parts['query'] : '';
+
+		$out   = rawurldecode( $path ) . ( '' !== $query ? '?' . rawurldecode( $query ) : '' );
+		$clean = preg_replace( '/[\x00-\x1F\x7F]/', '', $out );
+		$out   = null === $clean ? '' : $clean;
+
+		if ( '' !== $out && ! mb_check_encoding( $out, 'UTF-8' ) ) {
+			$clean = preg_replace( '/[^\x20-\x7E]/', '', $out );
+			$out   = null === $clean ? '' : $clean;
+		}
+
+		return '' === $out ? '/' : '/' . ltrim( $out, '/' );
+	}
+
+	/**
+	 * The bounded page a request resolved to, used as the throttle key rather than stored.
+	 *
+	 * Never `REQUEST_URI`. The throttle key is what stops a caller writing a row per request: a search
+	 * query or a junk querystring is unbounded caller input, so keying on it would hand anyone a way
+	 * to grow the table at will. Everything below comes from WordPress resolving the request to
+	 * something the site actually publishes.
+	 *
+	 * Since 1.27.0 this is *only* the key. The row stores requested_url() instead, so nothing about
+	 * what the visitor asked for is lost. The cost of keying here is sampling rather than omission:
+	 * two different URLs resolving to the same page within the throttle window produce one row, and
+	 * it keeps whichever arrived first.
 	 *
 	 * @return string
 	 */

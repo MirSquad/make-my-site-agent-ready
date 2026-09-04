@@ -4,7 +4,7 @@ Tags: markdown, llm, ai, llms-txt, agents
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.26.0
+Stable tag: 1.28.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -112,6 +112,20 @@ Yes. Plugin and theme authors can register one so it works on any site without t
 Use the `mmsar_registered_endpoints` filter for the same thing without a direct call. Add `'surfaces' => array( 'llms_txt' )` to limit where it appears, and `'rel'` to set its api-catalog link relation. Endpoints that publish a SKILL.md of their own can pass `'skill_url'` to get their own entry in the Agent Skills index. Code-registered endpoints appear read-only under "Added by Plugins" on the settings page. Full documentation is in the plugin's README on GitHub.
 
 == Changelog ==
+
+= 1.28.0 - 2026-09-04 =
+* **New: a real filter bar above the log.** Checkbox groups for surface, client and identity, so views can be combined: agent documents *and* Markdown, read by crawlers *and* browsers. It is a plain GET form, so every view is a URL that can be bookmarked or sent to someone.
+* **New: export what you are looking at.** With filters active the export offers both "Export this view" and "Export everything", each labelled with its row count. The filtered export walks the same id cursor, so it stays correct while the log is being written to.
+* **Changed: clearing the log now takes real intent.** It had no confirmation at all: one click on a button sitting inches from Export destroyed every entry. It has moved to the bottom of the screen, below the data, and requires typing DELETE before the button enables. The typed word is checked on the server too, so the disabled button is a convenience rather than the guard.
+* **Changed: the crawler identity panel is readable.** The verdict counts are a row of tiles instead of a run-on line, and the explanation is one idea per bullet instead of five consecutive paragraphs.
+* **Fixed:** a call to a method removed during this release's refactor would have made every `get-agent-log` request fatal. Caught by static analysis before shipping.
+
+= 1.27.0 - 2026-09-04 =
+* **New: filter the log by what was asked for, not just who asked.** A Surface filter on the Agent Log screen and a `surface` input on the `get-agent-log` ability, splitting requests into agent documents, Markdown, HTML pages and not-found. Combined with the client filter this answers the question the log exists for: did a real crawler read the agent-facing documents, or only the HTML.
+* **New:** the ability returns `surface_categories` counts alongside `client_types`, so the split is visible without paging through entries.
+* **Changed: page views now record the URL as the visitor requested it**, query string included, instead of only the page it resolved to. The resolved page is still used for throttling, which is what stops a caller writing unlimited entries by varying a query string; storing and throttling were never the same job. Internal search terms are therefore recorded as typed.
+* **Fixed:** the page-view setting ran each option's explanation straight on from its label with no separator, so it read as one sentence and changed font midway. Explanations now sit under their option.
+* **Changed:** the page-view help text no longer pushes a retention limit. Keeping everything is reasonable when the log is being used to answer a question about agent behaviour over time.
 
 = 1.26.0 - 2026-09-04 =
 * **New: every entry records what kind of client made the request.** A declared crawler, a real browser engine, or a script or fetch tool. The distinction comes from headers a browser cannot avoid sending, chiefly the `Sec-Fetch-*` set, which no fetch tool sends. An agent using a fetch tool is therefore recorded as a script even when it borrows a browser's user-agent string, which is the case that matters.

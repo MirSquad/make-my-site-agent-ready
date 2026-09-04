@@ -583,13 +583,16 @@ class MMSAR_Admin {
 		$notes   = array(
 			'off'    => __( 'You see only the clients that fetched an agent-facing file.', 'make-my-site-agent-ready' ),
 			'agents' => __( 'Adds the denominator for recognized crawlers: who came and ignored the agent-facing files.', 'make-my-site-agent-ready' ),
-			'all'    => __( 'Closes the blind spot. Without it, an unrecognized client\'s agent-file requests are recorded while its ordinary page views are not, so anything unbranded looks like it reads nothing else.', 'make-my-site-agent-ready' ),
+			'all'    => __( 'Closes the blind spot: without this, an unrecognized client\'s requests for agent-facing files are recorded while its ordinary page views are not, so anything unbranded looks as though it reads nothing else. The log still opens on agent traffic; browser page views are recorded as the denominator and filtered out of the default view.', 'make-my-site-agent-ready' ),
 		);
 
 		echo '<fieldset>';
 		foreach ( $choices as $value => $label ) {
+			// The note sits under the option, not inside the label. Inline, it ran straight on from
+			// the option text with no separator and switched font mid-sentence.
 			printf(
-				'<label style="display:block;margin-bottom:.35em;"><input type="radio" name="mmsar_agent_log_pages" value="%1$s" %2$s> %3$s <span class="description">%4$s</span></label>',
+				'<label style="display:block;"><input type="radio" name="mmsar_agent_log_pages" value="%1$s" %2$s> %3$s</label>
+				<p class="description" style="margin:.1em 0 .8em 1.75em;">%4$s</p>',
 				esc_attr( $value ),
 				checked( $mode, $value, false ),
 				esc_html( $label ),
@@ -602,7 +605,7 @@ class MMSAR_Admin {
 		esc_html_e( 'Recording every page view means the log holds human traffic too. Those rows are stored against a network rather than a full address (203.0.113.4 becomes 203.0.113.0), and against the page they resolved to, never the raw URL a visitor typed. A recognized crawler keeps its full address, which is what identity verification runs against.', 'make-my-site-agent-ready' );
 		echo '</p>';
 		echo '<p class="description">';
-		esc_html_e( 'Set a retention limit on the Agent Log screen before switching this on for a busy site. It records one entry per visitor, per page, per five minutes.', 'make-my-site-agent-ready' );
+		esc_html_e( 'One entry per visitor, per page, per five minutes. Keeping everything is a reasonable choice if the log is being used to answer a question about agent behaviour over time, and the retention limit on the Agent Log screen is there if the table ever outgrows its usefulness.', 'make-my-site-agent-ready' );
 		echo '</p>';
 	}
 

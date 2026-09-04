@@ -88,6 +88,20 @@ class MMSAR_Agent_Log_Page {
 			wp_die( esc_html__( 'Security check failed.', 'make-my-site-agent-ready' ) );
 		}
 
+		// The typed word is checked here as well as in the browser. A disabled button is a
+		// convenience, not a guard: this endpoint is reachable directly with a valid nonce.
+		$typed = isset( $_POST['mmsar_clear_confirm'] ) ? trim( sanitize_text_field( wp_unslash( $_POST['mmsar_clear_confirm'] ) ) ) : '';
+		if ( _x( 'DELETE', 'confirmation word typed to clear the agent log', 'make-my-site-agent-ready' ) !== $typed ) {
+			wp_die(
+				esc_html__( 'The log was not cleared: the confirmation word did not match.', 'make-my-site-agent-ready' ),
+				esc_html__( 'Confirmation required', 'make-my-site-agent-ready' ),
+				array(
+					'response'  => 400,
+					'back_link' => true,
+				)
+			);
+		}
+
 		MMSAR_Agent_Log::clear();
 
 		wp_safe_redirect(
@@ -220,7 +234,12 @@ class MMSAR_Agent_Log_Page {
 			wp_die( esc_html__( 'Security check failed.', 'make-my-site-agent-ready' ) );
 		}
 
-		$filename = 'agent-log-' . gmdate( 'Y-m-d' ) . '.csv';
+		// The export mirrors the screen unless asked for everything, so "export what I am looking at"
+		// is the default reading of the button next to a filtered table.
+		$scope   = isset( $_POST['mmsar_export_scope'] ) ? sanitize_key( wp_unslash( $_POST['mmsar_export_scope'] ) ) : 'view';
+		$filters = 'all' === $scope ? array( 'clients' => array_merge( MMSAR_Agent_Log::client_types(), array( 'unrecorded' ) ) ) : self::filters_from_post();
+
+		$filename = 'agent-log-' . ( 'all' === $scope ? 'all-' : '' ) . gmdate( 'Y-m-d' ) . '.csv';
 
 		nocache_headers();
 		header( 'Content-Type: text/csv; charset=utf-8' );
@@ -241,7 +260,7 @@ class MMSAR_Agent_Log_Page {
 
 		$cursor = 0;
 		do {
-			$rows  = MMSAR_Agent_Log::get_entries_before( $cursor, self::EXPORT_BATCH );
+			$rows  = MMSAR_Agent_Log::get_entries_before( $cursor, self::EXPORT_BATCH, $filters );
 			$count = count( $rows );
 			foreach ( $rows as $row ) {
 				fputcsv(
@@ -264,6 +283,25 @@ class MMSAR_Agent_Log_Page {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Closing the response body handle opened above.
 		fclose( $handle );
 		exit;
+	}
+
+	/**
+	 * The filter set carried on the export form, validated the same way the screen validates it.
+	 *
+	 * @return array{verdicts: string[], clients: string[], categories: string[]}
+	 */
+	private static function filters_from_post() {
+		$pick = static function ( $key, $allowed ) {
+			// phpcs:ignore WordPress.Security.NonceVerification.Missing -- The caller verified the export nonce before reaching this.
+			$raw = isset( $_POST[ $key ] ) ? array_map( 'sanitize_key', (array) wp_unslash( $_POST[ $key ] ) ) : array();
+			return array_values( array_intersect( $raw, $allowed ) );
+		};
+
+		return array(
+			'verdicts'   => $pick( 'verdict', array_merge( MMSAR_Agent_Log_Verify::verdicts(), array( 'pending' ) ) ),
+			'clients'    => $pick( 'client', array_merge( MMSAR_Agent_Log::client_types(), array( 'unrecorded' ) ) ),
+			'categories' => $pick( 'surface', MMSAR_Agent_Log::categories() ),
+		);
 	}
 
 	/**
@@ -304,38 +342,150 @@ class MMSAR_Agent_Log_Page {
 	}
 
 	/**
-	 * The requested verdict filter, restricted to values that exist.
+	 * The filter set currently requested, validated against what exists.
 	 *
-	 * Read, bounded and returned in one place for the same reason current_page() is: the request
-	 * variable never reaches the rendering code raw.
+	 * Read as arrays so several values can be selected on each axis: "agent documents and markdown",
+	 * "crawlers and browsers". Everything is whitelisted here, and the query layer whitelists again.
 	 *
-	 * @return string A verdict, 'pending', or an empty string for no filter.
+	 * @return array{verdicts: string[], clients: string[], categories: string[]}
 	 */
-	private static function current_verdict() {
+	private static function current_filters() {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only filtering of an admin screen.
-		$requested = isset( $_GET['mmsar_verified_filter'] ) ? sanitize_key( wp_unslash( $_GET['mmsar_verified_filter'] ) ) : '';
-		$allowed   = array_merge( array( 'pending' ), MMSAR_Agent_Log_Verify::verdicts() );
-		return in_array( $requested, $allowed, true ) ? $requested : '';
+		$raw = wp_unslash( $_GET );
+
+		$pick = static function ( $key, $allowed ) use ( $raw ) {
+			$vals = isset( $raw[ $key ] ) ? (array) $raw[ $key ] : array();
+			$vals = array_map( 'sanitize_key', array_map( 'strval', $vals ) );
+			return array_values( array_intersect( $vals, $allowed ) );
+		};
+
+		return array(
+			'verdicts'   => $pick( 'verdict', array_merge( MMSAR_Agent_Log_Verify::verdicts(), array( 'pending' ) ) ),
+			'clients'    => $pick( 'client', array_merge( MMSAR_Agent_Log::client_types(), array( 'unrecorded' ) ) ),
+			'categories' => $pick( 'surface', MMSAR_Agent_Log::categories() ),
+		);
 	}
 
 	/**
-	 * The requested client-type filter.
+	 * Whether any filter is actually narrowing the view.
 	 *
-	 * Defaults to excluding browser page views. This log exists to show what agents did, and once
-	 * every page view is recorded a screen that lists them all shows mostly people. The rows are
-	 * kept because they are the denominator every share is computed against; they are just not what
-	 * the screen opens on.
-	 *
-	 * @return string A client type, 'all', or '' for the agent-only default.
+	 * @param array $filters Filter set.
+	 * @return bool
 	 */
-	private static function current_client() {
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only filtering of an admin screen.
-		$requested = isset( $_GET['mmsar_client'] ) ? sanitize_key( wp_unslash( $_GET['mmsar_client'] ) ) : '';
-		$allowed   = array_merge( array( 'all' ), MMSAR_Agent_Log::client_types() );
-		return in_array( $requested, $allowed, true ) ? $requested : '';
+	private static function filters_active( $filters ) {
+		return (bool) ( $filters['verdicts'] || $filters['clients'] || $filters['categories'] );
 	}
 
 	/**
+	 * The current filters as query arguments, for building URLs that keep them.
+	 *
+	 * @param array $filters Filter set.
+	 * @return array
+	 */
+	private static function filter_args( $filters ) {
+		$args = array( 'page' => self::SLUG );
+		foreach ( array(
+			'verdict' => 'verdicts',
+			'client'  => 'clients',
+			'surface' => 'categories',
+		) as $arg => $key ) {
+			if ( $filters[ $key ] ) {
+				$args[ $arg ] = $filters[ $key ];
+			}
+		}
+		return $args;
+	}
+
+	/**
+	 * One checkbox group in the filter bar.
+	 *
+	 * @param string   $name     Query argument name.
+	 * @param string   $legend   Group label.
+	 * @param array    $options  value => label.
+	 * @param string[] $selected Currently ticked values.
+	 * @param array    $counts   Optional value => count.
+	 * @return void
+	 */
+	private static function render_filter_group( $name, $legend, $options, $selected, $counts = array() ) {
+		echo '<fieldset style="margin:0 2rem .5rem 0;display:inline-block;vertical-align:top;">';
+		echo '<legend style="font-weight:600;padding:0 0 .25rem;">' . esc_html( $legend ) . '</legend>';
+		foreach ( $options as $value => $label ) {
+			$text = isset( $counts[ $value ] ) ? $label . ' (' . number_format_i18n( $counts[ $value ] ) . ')' : $label;
+			printf(
+				'<label style="display:block;white-space:nowrap;"><input type="checkbox" name="%1$s[]" value="%2$s" %3$s> %4$s</label>',
+				esc_attr( $name ),
+				esc_attr( $value ),
+				checked( in_array( $value, $selected, true ), true, false ),
+				esc_html( $text )
+			);
+		}
+		echo '</fieldset>';
+	}
+
+	/**
+	 * The filter bar above the table.
+	 *
+	 * A plain GET form, so every view is a URL that can be bookmarked or sent to someone, and no
+	 * JavaScript is needed to combine axes.
+	 *
+	 * @param array $filters Current filter set.
+	 * @param int   $shown   Rows the current filter matches.
+	 * @param int   $total   Rows in the whole log.
+	 * @return void
+	 */
+	private static function render_filter_bar( $filters, $shown, $total ) {
+		$catcounts = MMSAR_Agent_Log::get_category_counts();
+
+		echo '<form method="get" action="' . esc_url( admin_url( 'options-general.php' ) ) . '" style="margin:1.5em 0 1em;padding:1rem 1.2rem;background:#fff;border:1px solid #c3c4c7;">';
+		echo '<input type="hidden" name="page" value="' . esc_attr( self::SLUG ) . '">';
+
+		$surface_opts = array();
+		foreach ( MMSAR_Agent_Log::categories() as $cat ) {
+			$surface_opts[ $cat ] = MMSAR_Agent_Log::category_label( $cat );
+		}
+		self::render_filter_group( 'surface', __( 'Surface', 'make-my-site-agent-ready' ), $surface_opts, $filters['categories'], $catcounts );
+
+		$client_opts = array();
+		foreach ( MMSAR_Agent_Log::client_types() as $ct ) {
+			$client_opts[ $ct ] = MMSAR_Agent_Log::client_type_label( $ct );
+		}
+		$client_opts['unrecorded'] = __( 'Not recorded', 'make-my-site-agent-ready' );
+		self::render_filter_group( 'client', __( 'Client', 'make-my-site-agent-ready' ), $client_opts, $filters['clients'] );
+
+		$verdict_opts = array();
+		foreach ( MMSAR_Agent_Log_Verify::verdicts() as $v ) {
+			$verdict_opts[ $v ] = MMSAR_Agent_Log_Verify::label( $v );
+		}
+		$verdict_opts['pending'] = MMSAR_Agent_Log_Verify::label( MMSAR_Agent_Log_Verify::PENDING );
+		self::render_filter_group( 'verdict', __( 'Identity', 'make-my-site-agent-ready' ), $verdict_opts, $filters['verdicts'] );
+
+		echo '<div style="clear:both;padding-top:.6rem;border-top:1px solid #f0f0f1;margin-top:.4rem;">';
+		submit_button( __( 'Apply filters', 'make-my-site-agent-ready' ), 'primary', 'submit', false );
+		if ( self::filters_active( $filters ) ) {
+			echo ' <a href="' . esc_url( admin_url( 'options-general.php?page=' . self::SLUG ) ) . '" style="margin-left:.6rem;">' . esc_html__( 'Reset', 'make-my-site-agent-ready' ) . '</a>';
+		}
+		echo ' <span class="description" style="margin-left:1rem;">';
+		if ( self::filters_active( $filters ) ) {
+			printf(
+				/* translators: 1: matching entries, 2: total entries */
+				esc_html__( 'Showing %1$s of %2$s entries.', 'make-my-site-agent-ready' ),
+				'<strong>' . esc_html( number_format_i18n( $shown ) ) . '</strong>',
+				esc_html( number_format_i18n( $total ) )
+			);
+		} else {
+			printf(
+				/* translators: 1: entries shown, 2: total entries */
+				esc_html__( 'Showing %1$s of %2$s entries. Browser page views are excluded until you tick Browser; they are recorded as a denominator, not as agent traffic.', 'make-my-site-agent-ready' ),
+				'<strong>' . esc_html( number_format_i18n( $shown ) ) . '</strong>',
+				esc_html( number_format_i18n( $total ) )
+			);
+		}
+		echo '</span></div>';
+		echo '</form>';
+	}
+
+	/**
+	 * Render the page. /**
 	 * Render the page.
 	 *
 	 * @return void
@@ -350,13 +500,12 @@ class MMSAR_Agent_Log_Page {
 		// holding it: whatever is left over is picked up on the next render or by the button below.
 		MMSAR_Agent_Log_Verify::run_batch();
 
-		$verdict = self::current_verdict();
-		$client  = self::current_client();
+		$filters = self::current_filters();
 		$total   = MMSAR_Agent_Log::count_entries();
-		$shown   = MMSAR_Agent_Log::count_filtered( $verdict, $client );
+		$shown   = MMSAR_Agent_Log::count_filtered( $filters );
 		$pages   = max( 1, (int) ceil( $shown / self::PER_PAGE ) );
 		$paged   = self::current_page( $pages );
-		$entries = MMSAR_Agent_Log::get_entries( self::PER_PAGE, ( $paged - 1 ) * self::PER_PAGE, $verdict, $client );
+		$entries = MMSAR_Agent_Log::get_entries( self::PER_PAGE, ( $paged - 1 ) * self::PER_PAGE, $filters );
 
 		echo '<div class="wrap">';
 		echo '<h1>' . esc_html__( 'Agent Log', 'make-my-site-agent-ready' ) . '</h1>';
@@ -423,54 +572,18 @@ class MMSAR_Agent_Log_Page {
 		}
 
 		self::render_verification_panel();
-		self::render_retention_form( $total );
+		self::render_retention_form( $total, $filters, $shown );
+		self::render_filter_bar( $filters, $shown, $total );
 
 		if ( empty( $entries ) ) {
 			echo '<p><em>' . esc_html(
-				'' === $verdict
-					? __( 'Nothing recorded yet. Agent traffic is intermittent — leave the log on and check back.', 'make-my-site-agent-ready' )
-					: __( 'No entries match that verification filter.', 'make-my-site-agent-ready' )
+				self::filters_active( $filters )
+					? __( 'No entries match these filters.', 'make-my-site-agent-ready' )
+					: __( 'Nothing recorded yet. Agent traffic is intermittent, so leave the log on and check back.', 'make-my-site-agent-ready' )
 			) . '</em></p>';
+			self::render_clear_form( $total );
 			echo '</div>';
 			return;
-		}
-
-		if ( '' === $verdict && $shown !== $total ) {
-			printf(
-				'<p class="description">%s</p>',
-				esc_html(
-					sprintf(
-						/* translators: 1: number of agent entries shown, 2: total entries in the log */
-						__( 'Showing %1$s agent entries. Browser page views are recorded as the denominator and hidden here; %2$s entries in total.', 'make-my-site-agent-ready' ),
-						number_format_i18n( $shown ),
-						number_format_i18n( $total )
-					)
-				)
-			);
-		} elseif ( '' === $verdict ) {
-			printf(
-				'<p class="description">%s</p>',
-				esc_html(
-					sprintf(
-						/* translators: %s: number of entries */
-						_n( '%s entry recorded.', '%s entries recorded.', $total, 'make-my-site-agent-ready' ),
-						number_format_i18n( $total )
-					)
-				)
-			);
-		} else {
-			printf(
-				'<p class="description">%s</p>',
-				esc_html(
-					sprintf(
-						/* translators: 1: number of matching entries, 2: verification verdict, 3: total entries */
-						__( '%1$s of %3$s entries are marked %2$s.', 'make-my-site-agent-ready' ),
-						number_format_i18n( $shown ),
-						MMSAR_Agent_Log_Verify::label( 'pending' === $verdict ? MMSAR_Agent_Log_Verify::PENDING : $verdict ),
-						number_format_i18n( $total )
-					)
-				)
-			);
 		}
 
 		echo '<table class="widefat striped"><thead><tr>';
@@ -509,11 +622,9 @@ class MMSAR_Agent_Log_Page {
 					array(
 						// Built from admin_url rather than add_query_arg's default, which would
 						// assemble the base from REQUEST_URI and echo unsanitized query input.
-						'base'      => admin_url(
-							'options-general.php?page=' . self::SLUG
-							. ( '' === $verdict ? '' : '&mmsar_verified_filter=' . rawurlencode( $verdict ) )
-							. ( '' === $client ? '' : '&mmsar_client=' . rawurlencode( $client ) )
-							. '&paged=%#%'
+						'base'      => add_query_arg(
+							array_merge( self::filter_args( $filters ), array( 'paged' => '%#%' ) ),
+							admin_url( 'options-general.php' )
 						),
 						'format'    => '',
 						'current'   => $paged,
@@ -525,6 +636,8 @@ class MMSAR_Agent_Log_Page {
 			);
 			echo '</div></div>';
 		}
+
+		self::render_clear_form( $total );
 
 		echo '</div>';
 	}
@@ -570,7 +683,11 @@ class MMSAR_Agent_Log_Page {
 	}
 
 	/**
-	 * The verification summary, the filter, and the button that clears the backlog.
+	 * The crawler-identity panel.
+	 *
+	 * Laid out as a headline, a row of counts and a short line per idea, rather than as consecutive
+	 * paragraphs. The earlier version said the same things and read as a block of text, so nothing
+	 * in it stood out, including the one number that should.
 	 *
 	 * @return void
 	 */
@@ -579,97 +696,86 @@ class MMSAR_Agent_Log_Page {
 		$counts  = $summary['counts'];
 		$pending = (int) $summary['pending'];
 		$failed  = isset( $counts[ MMSAR_Agent_Log_Verify::FAILED ] ) ? (int) $counts[ MMSAR_Agent_Log_Verify::FAILED ] : 0;
-		$current = self::current_verdict();
 
-		echo '<div style="margin:1em 0;padding:12px 14px;background:#fff;border:1px solid #c3c4c7;border-left-width:4px;border-left-color:' . ( $failed > 0 ? '#d63638' : '#72aee6' ) . ';">';
+		$accent = $failed > 0 ? '#d63638' : '#72aee6';
+		echo '<div style="margin:1em 0;background:#fff;border:1px solid #c3c4c7;border-left:4px solid ' . esc_attr( $accent ) . ';">';
 
-		echo '<p style="margin:0 0 6px;"><strong>' . esc_html__( 'Crawler identity', 'make-my-site-agent-ready' ) . '</strong></p>';
+		echo '<div style="padding:.9rem 1.1rem .2rem;">';
+		echo '<h2 style="margin:0 0 .4rem;font-size:1rem;">' . esc_html__( 'Crawler identity', 'make-my-site-agent-ready' ) . '</h2>';
 
 		if ( $failed > 0 ) {
-			echo '<p style="margin:0 0 8px;">';
+			echo '<p style="margin:0 0 .2rem;font-size:1.05rem;">';
 			printf(
 				/* translators: %s: number of entries */
 				esc_html( _n( '%s entry claimed an AI crawler it is not.', '%s entries claimed an AI crawler they are not.', $failed, 'make-my-site-agent-ready' ) ),
-				'<strong>' . esc_html( number_format_i18n( $failed ) ) . '</strong>'
+				'<strong style="color:#b3261e;">' . esc_html( number_format_i18n( $failed ) ) . '</strong>'
 			);
-			echo ' ' . esc_html__( 'The user-agent was forged; the address does not belong to the operator it named.', 'make-my-site-agent-ready' );
 			echo '</p>';
+			echo '<p class="description" style="margin:0 0 .6rem;">' . esc_html__( 'The user-agent was forged: the address does not belong to the operator it named.', 'make-my-site-agent-ready' ) . '</p>';
 		} else {
-			echo '<p style="margin:0 0 8px;">' . esc_html__( 'No forged crawler identities found so far.', 'make-my-site-agent-ready' ) . '</p>';
+			echo '<p style="margin:0 0 .6rem;">' . esc_html__( 'No forged crawler identities found so far.', 'make-my-site-agent-ready' ) . '</p>';
 		}
+		echo '</div>';
 
-		// The pending count sits with the verdicts on purpose. Verdict totals over a half-checked
-		// log describe the checked half and nothing else, and a reader who cannot see how much is
-		// still outstanding has no way to tell a quiet result from an unfinished one.
-		$parts = array();
+		// The counts as a row of tiles. Same numbers, but each one readable on its own.
+		$tiles = array();
 		foreach ( MMSAR_Agent_Log_Verify::verdicts() as $verdict ) {
-			$count = isset( $counts[ $verdict ] ) ? (int) $counts[ $verdict ] : 0;
-			if ( $count > 0 ) {
-				$parts[] = MMSAR_Agent_Log_Verify::label( $verdict ) . ': ' . number_format_i18n( $count );
-			}
+			$tiles[ MMSAR_Agent_Log_Verify::label( $verdict ) ] = isset( $counts[ $verdict ] ) ? (int) $counts[ $verdict ] : 0;
 		}
 		if ( $pending > 0 ) {
-			$parts[] = MMSAR_Agent_Log_Verify::label( MMSAR_Agent_Log_Verify::PENDING ) . ': ' . number_format_i18n( $pending );
+			$tiles[ MMSAR_Agent_Log_Verify::label( MMSAR_Agent_Log_Verify::PENDING ) ] = $pending;
 		}
-		if ( $parts ) {
-			echo '<p class="description" style="margin:0 0 8px;">' . esc_html( implode( ' · ', $parts ) ) . '</p>';
+		echo '<div style="display:flex;flex-wrap:wrap;gap:0;border-top:1px solid #f0f0f1;">';
+		foreach ( $tiles as $label => $count ) {
+			echo '<div style="flex:1 1 7rem;padding:.6rem 1.1rem;border-right:1px solid #f0f0f1;">';
+			echo '<div style="font-size:1.25rem;font-weight:600;line-height:1.2;">' . esc_html( number_format_i18n( $count ) ) . '</div>';
+			echo '<div class="description" style="font-size:.78rem;">' . esc_html( $label ) . '</div>';
+			echo '</div>';
 		}
+		echo '</div>';
 
-		$recheckable = MMSAR_Agent_Log::count_recheckable();
+		echo '<div style="padding:.7rem 1.1rem 1rem;border-top:1px solid #f0f0f1;">';
+
+		// One idea per line, each short enough to scan.
+		$notes   = array();
+		$notes[] = __( 'Unverifiable and No DNS mean this plugin had no way to check, not that the caller was suspicious.', 'make-my-site-agent-ready' );
+		$notes[] = __( 'No DNS entries retry themselves within a day. Verified and Spoofed are never re-checked.', 'make-my-site-agent-ready' );
+
 		$uncheckable = MMSAR_Agent_Log::get_uncheckable_agents();
-
-		if ( $recheckable > 0 || $uncheckable ) {
-			echo '<p class="description" style="margin:0 0 10px;">';
-			esc_html_e( 'Unverifiable and No DNS mean this plugin had no way to check, not that the caller was suspicious. No DNS entries are retried on their own within a day. Verified and Spoofed entries are never re-checked.', 'make-my-site-agent-ready' );
-			echo '</p>';
-		}
-
-		// Naming the agents matters more than the count here. Without it the reader sees a stuck
-		// number and no button, which reads as something being broken; with it, the number is an
-		// answer — nobody publishes a way to confirm these crawlers, so there is nothing to retry.
 		if ( $uncheckable ) {
-			$total_uncheckable = array_sum( $uncheckable );
-			$names             = array_keys( $uncheckable );
-			echo '<p class="description" style="margin:0 0 10px;">';
-			/* translators: 1: number of entries, 2: comma-separated list of crawler names */
-			$template = _n(
-				'%1$s entry is unverifiable because no operator publishes a way to confirm it (%2$s). Re-checking cannot change that — it becomes checkable only if a future update adds that operator.',
-				'%1$s entries are unverifiable because no operator publishes a way to confirm them (%2$s). Re-checking cannot change that — they become checkable only if a future update adds their operator.',
-				$total_uncheckable,
-				'make-my-site-agent-ready'
+			$notes[] = sprintf(
+				/* translators: 1: number of entries, 2: comma-separated crawler names */
+				__( '%1$s entries can never be confirmed, because no operator publishes a way to check them (%2$s).', 'make-my-site-agent-ready' ),
+				number_format_i18n( array_sum( $uncheckable ) ),
+				implode( ', ', array_keys( $uncheckable ) )
 			);
-			printf(
-				esc_html( $template ),
-				'<strong>' . esc_html( number_format_i18n( $total_uncheckable ) ) . '</strong>',
-				esc_html( implode( ', ', $names ) )
-			);
-			echo '</p>';
 		}
 
 		$captured = MMSAR_Agent_Log_Verify::ranges_captured();
 		if ( $captured ) {
-			echo '<p class="description" style="margin:0 0 10px;">';
-			printf(
-				/* translators: %s: date the bundled IP ranges were captured */
-				esc_html__( 'Anthropic, OpenAI and Perplexity publish no reverse-DNS records for their crawlers, so those are checked against the IP ranges they publish instead. The bundled copy dates from %s; a range added since then reads as forged until the plugin is updated.', 'make-my-site-agent-ready' ),
-				esc_html( $captured )
+			$notes[] = sprintf(
+				/* translators: %s: capture date of the bundled IP ranges */
+				__( 'Anthropic, OpenAI, Perplexity and DuckDuckGo publish no reverse-DNS for their crawlers, so those are checked against published IP ranges bundled with the plugin (captured %s).', 'make-my-site-agent-ready' ),
+				$captured
 			);
-			echo '</p>';
 		}
 
+		echo '<ul style="margin:0 0 .8rem;list-style:disc;padding-left:1.2rem;" class="description">';
+		foreach ( $notes as $note ) {
+			echo '<li style="margin:0 0 .2rem;">' . esc_html( $note ) . '</li>';
+		}
+		echo '</ul>';
+
+		$recheckable = MMSAR_Agent_Log::count_recheckable();
 		if ( $pending > 0 ) {
-			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;margin:0 8px 0 0;">';
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;margin:0 .5rem 0 0;">';
 			echo '<input type="hidden" name="action" value="mmsar_verify_agent_log">';
 			wp_nonce_field( 'mmsar_verify_agent_log', 'mmsar_nonce' );
 			submit_button( __( 'Verify now', 'make-my-site-agent-ready' ), 'secondary', 'submit', false );
 			echo '</form>';
 		}
-
-		// Shown only when a re-check could produce a different answer. Offering it otherwise is
-		// offering an action with no possible outcome, which is what the count of merely-undecided
-		// rows used to do: it stayed at 107 however many times it was pressed.
 		if ( $recheckable > 0 ) {
-			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;margin:0 8px 0 0;">';
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;">';
 			echo '<input type="hidden" name="action" value="mmsar_recheck_agent_log">';
 			wp_nonce_field( 'mmsar_recheck_agent_log', 'mmsar_nonce' );
 			submit_button(
@@ -684,82 +790,23 @@ class MMSAR_Agent_Log_Page {
 			);
 			echo '</form>';
 		}
-
-		// A plain link set rather than a select: five options, no JavaScript anywhere in this
-		// plugin, and each one is a URL an administrator can bookmark or send to someone.
-		echo '<span style="display:inline-block;">';
-		$options = array( '' => __( 'All', 'make-my-site-agent-ready' ) );
-		foreach ( MMSAR_Agent_Log_Verify::verdicts() as $verdict ) {
-			$options[ $verdict ] = MMSAR_Agent_Log_Verify::label( $verdict );
-		}
-		if ( $pending > 0 ) {
-			$options['pending'] = MMSAR_Agent_Log_Verify::label( MMSAR_Agent_Log_Verify::PENDING );
-		}
-
-		$links = array();
-		foreach ( $options as $value => $label ) {
-			$url     = '' === $value
-				? admin_url( 'options-general.php?page=' . self::SLUG )
-				: add_query_arg(
-					array(
-						'page'                  => self::SLUG,
-						'mmsar_verified_filter' => $value,
-					),
-					admin_url( 'options-general.php' )
-				);
-			$links[] = $value === $current
-				? '<strong>' . esc_html( $label ) . '</strong>'
-				: '<a href="' . esc_url( $url ) . '">' . esc_html( $label ) . '</a>';
-		}
-		echo wp_kses_post( implode( ' | ', $links ) );
-		echo '</span>';
-
-		$ccounts = MMSAR_Agent_Log::get_client_type_counts();
-		if ( $ccounts[ MMSAR_Agent_Log::CLIENT_BROWSER ] > 0 ) {
-			$current_client = self::current_client();
-			$copts          = array(
-				''                              => __( 'Agents only', 'make-my-site-agent-ready' ),
-				MMSAR_Agent_Log::CLIENT_BROWSER => __( 'Browsers', 'make-my-site-agent-ready' ),
-				'all'                           => __( 'Everything', 'make-my-site-agent-ready' ),
-			);
-			$clinks         = array();
-			foreach ( $copts as $value => $label ) {
-				$url      = '' === $value
-					? admin_url( 'options-general.php?page=' . self::SLUG )
-					: add_query_arg(
-						array(
-							'page'         => self::SLUG,
-							'mmsar_client' => $value,
-						),
-						admin_url( 'options-general.php' )
-					);
-				$clinks[] = $value === $current_client
-					? '<strong>' . esc_html( $label ) . '</strong>'
-					: '<a href="' . esc_url( $url ) . '">' . esc_html( $label ) . '</a>';
-			}
-			echo '<span style="display:inline-block;margin-left:1.2rem;">';
-			echo wp_kses_post( implode( ' | ', $clinks ) );
-			echo '</span>';
-
-			echo '<p class="description" style="margin:.7rem 0 0;">';
-			printf(
-				/* translators: %s: number of browser page views */
-				esc_html__( '%s page views came from a browser engine and are hidden by default. They are recorded so shares have a denominator, not because they are agent traffic. A browser signature means the request came from a real browser, which is usually a person and is also what an agent driving a headless Chrome looks like.', 'make-my-site-agent-ready' ),
-				'<strong>' . esc_html( number_format_i18n( $ccounts[ MMSAR_Agent_Log::CLIENT_BROWSER ] ) ) . '</strong>'
-			);
-			echo '</p>';
-		}
-
+		echo '</div>';
 		echo '</div>';
 	}
 
 	/**
-	 * The retention control and the clear button.
+	 * The retention control and the export buttons.
 	 *
-	 * @param int $total Current number of entries.
+	 * Clear is deliberately not here any more. It used to sit inches from Export with no
+	 * confirmation of any kind, so a single mis-click destroyed the whole table. It now lives at the
+	 * very bottom of the screen, past the data, behind a typed confirmation.
+	 *
+	 * @param int   $total   Entries in the whole log.
+	 * @param array $filters Current filter set, carried into the export so it can mirror the view.
+	 * @param int   $shown   Entries the current filter matches.
 	 * @return void
 	 */
-	private static function render_retention_form( $total ) {
+	private static function render_retention_form( $total, $filters = array(), $shown = 0 ) {
 		$limit = MMSAR_Agent_Log::get_limit();
 
 		echo '<form method="post" action="options.php" style="margin:1em 0;">';
@@ -768,28 +815,117 @@ class MMSAR_Agent_Log_Page {
 		echo '<input type="number" min="0" step="1" id="mmsar-log-limit" name="' . esc_attr( MMSAR_Agent_Log::LIMIT_OPTION ) . '" value="' . esc_attr( (string) $limit ) . '" class="small-text"> ';
 		submit_button( __( 'Save', 'make-my-site-agent-ready' ), 'secondary', 'submit', false );
 		echo '<p class="description">';
-		esc_html_e( '0 keeps everything, which is the default. Set a number to have the oldest entries dropped once the log passes it. Entries are trimmed periodically rather than on every request, so the count can sit slightly above your limit between trims. Worth a look on a content-heavy site: since 1.24.0 the Markdown surfaces record which page was fetched, so a crawler sweeping forty Markdown files now writes forty entries where it previously wrote one. That is the point of the change, and it does make the log grow faster than it used to.', 'make-my-site-agent-ready' );
+		esc_html_e( '0 keeps everything, which is the default and the right setting if the log is being used to answer a question about agent behaviour over time. Set a number to have the oldest entries dropped once the log passes it; entries are trimmed periodically rather than on every request, so the count can sit slightly above the limit between trims.', 'make-my-site-agent-ready' );
 		echo '</p>';
 		echo '</form>';
 
-		if ( $total > 0 ) {
-			// Export first and in its own form, so the button that keeps the data sits ahead of the
-			// one that destroys it and neither can be submitted by aiming at the other.
-			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;margin:0 8px 1.5em 0;">';
-			echo '<input type="hidden" name="action" value="mmsar_export_agent_log">';
-			wp_nonce_field( 'mmsar_export_agent_log', 'mmsar_nonce' );
-			submit_button( __( 'Export CSV', 'make-my-site-agent-ready' ), 'secondary', 'submit', false );
-			echo '</form>';
-
-			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;margin-bottom:1.5em;">';
-			echo '<input type="hidden" name="action" value="mmsar_clear_agent_log">';
-			wp_nonce_field( 'mmsar_clear_agent_log', 'mmsar_nonce' );
-			submit_button( __( 'Clear log', 'make-my-site-agent-ready' ), 'delete', 'submit', false );
-			echo '</form>';
-
-			echo '<p class="description" style="margin-top:0;">';
-			esc_html_e( 'The export contains every entry, not just this page, with timestamps in UTC.', 'make-my-site-agent-ready' );
-			echo '</p>';
+		if ( $total < 1 ) {
+			return;
 		}
+
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin:0 0 1.5em;">';
+		echo '<input type="hidden" name="action" value="mmsar_export_agent_log">';
+		wp_nonce_field( 'mmsar_export_agent_log', 'mmsar_nonce' );
+
+		// The active filters ride along so "this view" means what the screen is showing.
+		foreach ( array(
+			'verdict' => 'verdicts',
+			'client'  => 'clients',
+			'surface' => 'categories',
+		) as $arg => $key ) {
+			foreach ( ( $filters[ $key ] ?? array() ) as $value ) {
+				printf( '<input type="hidden" name="%1$s[]" value="%2$s">', esc_attr( $arg ), esc_attr( $value ) );
+			}
+		}
+
+		if ( self::filters_active( $filters ) ) {
+			printf(
+				'<button type="submit" name="mmsar_export_scope" value="view" class="button button-secondary">%s</button> ',
+				esc_html(
+					sprintf(
+						/* translators: %s: number of entries in the current view */
+						__( 'Export this view (%s)', 'make-my-site-agent-ready' ),
+						number_format_i18n( $shown )
+					)
+				)
+			);
+		}
+		printf(
+			'<button type="submit" name="mmsar_export_scope" value="all" class="button button-secondary">%s</button>',
+			esc_html(
+				sprintf(
+					/* translators: %s: total number of entries */
+					__( 'Export everything (%s)', 'make-my-site-agent-ready' ),
+					number_format_i18n( $total )
+				)
+			)
+		);
+		echo '<p class="description" style="margin-top:.4rem;">';
+		esc_html_e( 'CSV, timestamps in UTC. "Everything" includes browser page views even when the screen is hiding them.', 'make-my-site-agent-ready' );
+		echo '</p>';
+		echo '</form>';
+	}
+
+	/**
+	 * The clear control, at the very bottom and behind a typed confirmation.
+	 *
+	 * Two gates rather than one. A browser confirm() is easy to dismiss by reflex, and this log is
+	 * now months of data that cannot be recovered, so the word has to be typed and the submit button
+	 * is disabled until it matches. The confirm() is a second line for anyone who types it and then
+	 * changes their mind.
+	 *
+	 * @param int $total Entries in the log.
+	 * @return void
+	 */
+	private static function render_clear_form( $total ) {
+		if ( $total < 1 ) {
+			return;
+		}
+
+		echo '<div style="margin:3em 0 1em;padding:1rem 1.2rem;border:1px solid #d63638;border-left-width:4px;background:#fff;max-width:44rem;">';
+		echo '<h2 style="margin:0 0 .3rem;font-size:1rem;color:#b3261e;">' . esc_html__( 'Delete the log', 'make-my-site-agent-ready' ) . '</h2>';
+		echo '<p class="description" style="margin:0 0 .8rem;">';
+		printf(
+			/* translators: %s: number of entries */
+			esc_html__( 'Permanently deletes all %s entries. There is no undo and no backup. Export first if there is any chance you will want this data.', 'make-my-site-agent-ready' ),
+			'<strong>' . esc_html( number_format_i18n( $total ) ) . '</strong>'
+		);
+		echo '</p>';
+
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" id="mmsar-clear-form">';
+		echo '<input type="hidden" name="action" value="mmsar_clear_agent_log">';
+		wp_nonce_field( 'mmsar_clear_agent_log', 'mmsar_nonce' );
+		echo '<label for="mmsar-clear-confirm">';
+		printf(
+			/* translators: %s: the word that must be typed, already translated */
+			esc_html__( 'Type %s to enable the button:', 'make-my-site-agent-ready' ),
+			'<code>' . esc_html_x( 'DELETE', 'confirmation word typed to clear the agent log', 'make-my-site-agent-ready' ) . '</code>'
+		);
+		echo '</label> ';
+		echo '<input type="text" id="mmsar-clear-confirm" name="mmsar_clear_confirm" value="" autocomplete="off" class="regular-text" style="width:9rem;"> ';
+		echo '<button type="submit" id="mmsar-clear-submit" class="button button-link-delete" disabled>' . esc_html__( 'Delete all entries', 'make-my-site-agent-ready' ) . '</button>';
+		echo '</form>';
+		echo '</div>';
+
+		// Admin-only inline script. The server checks the typed word too, so this is convenience
+		// rather than the guard.
+		?>
+		<script>
+		( function () {
+			var word  = <?php echo wp_json_encode( _x( 'DELETE', 'confirmation word typed to clear the agent log', 'make-my-site-agent-ready' ) ); ?>;
+			var msg   = <?php echo wp_json_encode( __( 'This permanently deletes every entry in the agent log. There is no undo. Continue?', 'make-my-site-agent-ready' ) ); ?>;
+			var input = document.getElementById( 'mmsar-clear-confirm' );
+			var btn   = document.getElementById( 'mmsar-clear-submit' );
+			var form  = document.getElementById( 'mmsar-clear-form' );
+			if ( ! input || ! btn || ! form ) { return; }
+			input.addEventListener( 'input', function () {
+				btn.disabled = ( input.value.trim() !== word );
+			} );
+			form.addEventListener( 'submit', function ( e ) {
+				if ( input.value.trim() !== word || ! window.confirm( msg ) ) { e.preventDefault(); }
+			} );
+		} )();
+		</script>
+		<?php
 	}
 }
